@@ -1,0 +1,355 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Quickstart
+description: Every crust command, shell-line and TypeScript-API side by side.
+---
+
+import CodeSwitcher from '../../components/CodeSwitcher.astro';
+import InstallBlock from '../../components/InstallBlock.astro';
+
+A tour of crust's surface. Each block shows the **shell line** alongside the equivalent **TypeScript API** call — pick the one that fits the file you're in.
+
+> At wide viewports the two panes sit side-by-side. On narrower screens use the `bsh` / `ts` tabs at the top of each block; your choice carries across the page.
+
+## Install & launch
+
+<InstallBlock />
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Interactive REPL
+  ~/.crust/bin/crust
+
+  # One-liner mode — runs through the full pipeline parser
+  crust -c 'range(0,99) | parallel 20 | GET :3000/health | expect 200 | stats'
+
+  # Help / version
+  crust -h
+  crust -V
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Any .ts file run with bun has access to crust's globals
+  // bun script.ts
+  await range(0, 99)
+    .pipe(parallel(20, () => fetch("http://localhost:3000/health")))
+    .pipe(expectStage(200))
+    .to(stats());
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Sources
+
+A source is anything that produces a `Pipeline<T>`. Globs, ranges, shell commands, and HTTP verbs all work as sources.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  ls                                # any shell command — source if first stage
+  range(0, 9)                       # 0..9 inclusive — Pipeline<number>
+  **/*.ts                           # glob — Pipeline<string> of paths
+  src/*.{ts,tsx}                    # globs support **/*, ?, [abc]
+  GET https://api.example.com/v1    # Pipeline<Response>
+  GET :3000/health                  # localhost shorthand
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Shell source via Bun.$
+  await $`ls`.text();
+
+  range(0, 9);                       // Pipeline<number>
+  glob("**/*.ts");                   // Pipeline<string>
+  glob("src/*.{ts,tsx}");
+  GET("https://api.example.com/v1"); // Pipeline<Response>
+  GET("http://localhost:3000/health");
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Transforms
+
+Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all work.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  ... | grep TODO                              # any shell command
+  ... | (line => line.toUpperCase())           # TS lambda
+  ... | tr '[:lower:]' '[:upper:]'             # standard pipes work
+  ... | POST :3000/users                       # per-item POST (body = item)
+  ... | DELETE :3000/users/:id                 # per-item DELETE
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Lambdas and HTTP stages compose via .pipe()
+  pipeline
+    .pipe(s => s.toUpperCase())
+    .pipe(POST("http://localhost:3000/users"))
+    .pipe(DELETE("http://localhost:3000/users/:id"));
+
+  // HTTP transforms auto-set content-type: application/json for objects.
+  // Strings → text. Buffer / Uint8Array → raw bytes.
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Assertions, concurrency, stats
+
+In v0.1 `expect`, `parallel`, and `stats` are TypeScript-only — shell-line keywords land in v0.1.5. To use them from a shell line today, write your pipeline in a `.ts` file or `source` it from a script.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # v0.1.5+ (preview — not yet a shell-line keyword)
+  range(0, 999) | parallel 50 | GET :3000/health | expect 200 | stats
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  await range(0, 999)
+    .pipe(parallel(50, () => fetch("http://localhost:3000/health")))
+    .pipe(expectStage(200))
+    .to(stats());
+
+  // expectStage matchers:
+  expectStage(200);                          // exact status
+  expectStage("2xx");                        // class — "2xx" | "3xx" | "4xx" | "5xx"
+  expectStage(item => item.status < 300);    // custom predicate
+
+  // On mismatch the pipeline rejects with ExpectError { item, index, matcher }
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Timing — `time "label"`
+
+`time` is a prefix-only decorator (bash-style). Place it before the source to wrap the whole pipeline. Elapsed wall time + item count goes to **stderr** when the iterator drains — even if a downstream stage throws.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  time "warmup" | range(0, 1000) | GET :3000/health
+  # stderr → [time] warmup: 412.3ms (1001 items)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  await time("warmup",
+    range(0, 1000)
+      .pipe(GET("http://localhost:3000/health"))
+  ).collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Builtins
+
+Builtins run in-process. They dispatch when the first token matches a builtin name **and** the line has no pipe (`|`), redirect (`<`, `>`), or sequencing (`&`, `;`) operators.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  cd <dir>            # cd, cd -, cd ~, cd ~/path
+  export FOO=bar      # set env var (multiple KEY=value pairs accepted)
+  export              # list env
+  alias g=git         # define alias (also: alias g='git status')
+  alias               # list aliases
+  unalias g
+
+  source script.sh    # .sh runs in sh
+  source script.ts    # .ts/.js dynamically imported
+
+  history             # list this session's lines
+  exit [code]
+  help
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // From init.ts you can mutate the live shell state
+  declare const crust: {
+    alias(name: string, cmd: string): void;
+    unalias(name: string): void;
+    fn(name: string, handler: (...args: any[]) => any): void;
+    prompt?: (cwd: string, gitBranch: string | null) => string;
+    onBeforeStart?: () => void | Promise<void>;
+    onExit?: (code: number) => void | Promise<void>;
+    onSignal(sig: "SIGINT" | "SIGTERM" | "SIGHUP" | "SIGUSR1" | "SIGUSR2",
+             handler: () => void | Promise<void>): void;
+  };
+
+  crust.alias("ll", "ls -la");
+  crust.alias("g", "git");
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### dotenv
+
+Loads `.env` into the live session (`process.env`). `overwrite` is the default; `--append` keeps existing values.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  dotenv                            # load ./.env, overwrite mode
+  dotenv --config .env.local
+  dotenv --config .env.local --append
+  dotenv status                     # load history + per-key origin
+  dotenv clear                      # restore pre-first-load snapshot
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Programmatic — same effect from a script
+  import { loadDotenv } from "crust/dotenv";
+  await loadDotenv({ path: ".env.local", mode: "append" });
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### Built-in functions
+
+Small helpers that work as both pipeline stages and one-shot sources.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  echo hello | base64                           # aGVsbG8=
+  echo "QmVhcmVy" | base64 -d                   # Bearer
+  salt 32 base64                                # 32 random bytes, base64
+
+  jwt sign '{"sub":"42"}' --secret k            # eyJhbGciOiJIUzI1Ni...
+  echo eyJhbGciOiJIUzI1Ni... | jwt verify --secret k
+
+  sql "select id, email from users limit 5" | (r => r.email)
+
+  bundle src/index.ts --outfile dist/app.js --minify
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Same helpers via the TS API
+  await Pipeline.of(["hello"])
+    .pipe(s => Buffer.from(s).toString("base64"))
+    .collect();
+
+  // crust.fn / globally-installed npm packages auto-dispatch.
+  // Register your own:
+  crust.fn("wrap", (item, l, r) => `${l}${item}${r}`);
+  // Then in the shell:  echo hi | wrap [ ]
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### test-fixture
+
+Runs `.crust.ts` fixture files against an HTTP service. Each file is a normal TS module that default-exports a fixture (or array of fixtures) with `input` and `output` objects.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  test-fixture --target fixtures/*.crust.ts
+  test-fixture --target fixtures/users.crust.ts --out report.md
+  test-fixture --target 'fixtures/**/*.crust.ts' --threads 8 --out report.json
+  test-fixture --target stress.crust.ts --count 1000 --threads 32 --out report.json
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // fixtures/users.crust.ts
+  export default {
+    name: "GET /users/42 returns Lario",
+    input: {
+      method: "GET",
+      url: "http://localhost:3000/users/42",
+      headers: async () => ({
+        Authorization: `Bearer ${await Bun.jwt.sign({ sub: "42" }, "k")}`,
+      }),
+    },
+    output: {
+      status: 200,
+      data: { id: 42, name: "Lario" },
+      headers: { "content-type": (v: string) => v.startsWith("application/json") },
+    },
+  };
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+For randomized inputs across iterations, see the [Stress testing recipe](/docs/recipes/stress-testing).
+
+### mock-server
+
+Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  mock-server --swagger ./openapi.yaml --port 4000
+  mock-server --swagger https://petstore3.swagger.io/api/v3/openapi.json --port 4747
+  mock-server --swagger ./spec.json --port 0 --host 127.0.0.1     # OS-assigned port
+  mock-server --swagger ./openapi.yaml --port 4000 --cluster 4    # Linux: SO_REUSEPORT
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Programmatic — useful when embedding the mock in a test harness
+  import { startMockServer } from "crust/mockServer";
+  const handle = await startMockServer({
+    swagger: "./openapi.yaml",
+    port: 4000,
+  });
+  // ... run tests ...
+  await handle.stop();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+See the [Mock server recipe](/docs/recipes/mock-server) for response-selection rules, cluster mode, and per-request log format.
+
+## Pipeline methods (TS)
+
+The full surface of `Pipeline<T>` for any `.ts` file run by Bun:
+
+```ts
+Pipeline.of(arr | asyncIterable | ReadableStream)   // construction
+
+pipeline
+  .pipe(stage)            // fn(x)=>U | Pipeline | async iterable | PipelineStage
+  .map(fn)                // per-item, async ok
+  .filter(fn)
+  .reduce(fn, init)       // terminal → Promise<A>
+  .collect()              // terminal → Promise<T[]>
+  .text()                 // terminal → Promise<string> (joined with \n)
+  .lines()                // AsyncIterable<T> — for await
+  .json<U>()              // terminal → Promise<U>
+  .to(sink)               // terminal → calls sink(this)
+```
+
+## Editor keybindings
+
+The line editor runs in raw mode (TTY-only). Reading from a pipe also works — it submits each `\n`-terminated line.
+
+| Key | Action |
+|---|---|
+| `←` / `→` | Move cursor |
+| `↑` / `↓` | History navigation |
+| `Home` / `Ctrl-A` | Start of line |
+| `End` / `Ctrl-E` | End of line |
+| `Backspace` / `Delete` | Delete left / right |
+| `Ctrl-W` / `Ctrl-U` / `Ctrl-K` | Kill word / start-of-line / end-of-line |
+| `Ctrl-L` | Clear screen |
+| `Ctrl-C` | Cancel line, fresh prompt |
+| `Ctrl-D` | EOF — exit if line is empty |
+| `Tab` | `$PATH` complete at start-of-stage, file path elsewhere |
+| `Enter` | Submit line |
+
+## Next
+
+- **[Recipes](/docs/recipes)** — focused, end-to-end workflows.
+- **[Intro](/docs/intro)** — back to the mental model.

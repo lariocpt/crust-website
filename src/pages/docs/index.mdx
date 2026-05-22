@@ -1,0 +1,34 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Docs
+description: A Bun-powered shell with first-class pipelines. Start here.
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+Welcome to the Crust documentation. Crust is a Bun-powered shell with first-class pipelines — bash commands, TypeScript lambdas, HTTP verbs, globs, and parallel workers all compose under one `|` / `.pipe()` abstraction.
+
+## Install
+
+<InstallBlock />
+
+The installer puts crust in `~/.crust/`, installs Bun if missing, copies a starter config to `~/.config/crust/init.ts`, and (with sudo) registers `~/.crust/bin/crust` in `/etc/shells`.
+
+## Where to next
+
+- **[Intro](/docs/intro)** — why bash and TypeScript live on the same pipeline, and what that actually buys you.
+- **[Quickstart](/docs/quickstart)** — every command crust ships, with the shell-line form and the TS-API form side by side.
+- **[npm packages](/docs/npm-packages)** — turn any globally-installed npm package into a pipeline stage, plus `crust.fn` for the harder cases.
+- **[DB drivers](/docs/db-drivers)** — point the `sql` builtin at Postgres, MySQL, SQLite, or anything you can wire up via `init.ts`.
+- **[Recipes](/docs/recipes)** — workflows you can lift directly: stress runs, OpenAPI mocks, smoke tests, log mining.
+
+## v0.1 at a glance
+
+| | |
+|---|---|
+| Sources | shell commands, `range(a,b)`, globs (`**/*.ts`), `GET <url>` |
+| Transforms | shell stages, `(x => …)` TS lambdas, `POST` / `PUT` / `PATCH` / `DELETE` |
+| Sinks | stdout (default), `write(path)`, `dest(dir)`, `stats()` |
+| Builtins | `cd`, `export`, `alias`, `source`, `history`, `dotenv`, `test-fixture`, `mock-server`, `time`, `exit`, `help` |
+| Configuration | `~/.config/crust/init.ts` — register aliases, `crust.fn(...)` stages, lifecycle hooks |
+| One-liner mode | `crust -c '<pipeline>'` from any shell |

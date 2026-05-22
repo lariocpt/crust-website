@@ -1,0 +1,195 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Heap snapshots during testing
+description: Wire a Bun [test] preload that writes a .heapsnapshot and prints a top-classes report after every test run.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** every time you run `bun test`, drop a `.heapsnapshot` to disk and print a one-screen summary — RSS, heap used, external bytes, total nodes, top N classes. Use it to catch leaks in long-running suites, watch for ballooning RSS as you add features, and grab a snapshot to load into Chrome DevTools when something looks off.
+
+This is the same preload crust itself uses while developing the shell. Drop it into any Bun project.
+
+## Wire it in
+
+Two files. Bun loads `bunfig.toml` automatically and runs any `[test].preload` modules before your test files.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Run the suite — the preload fires once per test file,
+  # the report emits exactly once at process exit.
+  bun test
+
+  # Inspect the most recent snapshot in Chrome DevTools:
+  # devtools → Memory tab → "Load profile..." → pick the .heapsnapshot
+  ls -t .crust/heap/*.heapsnapshot | head -1
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```toml
+  # bunfig.toml
+  [test]
+  preload = ["./tests/heapReport.ts"]
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## The preload
+
+`tests/heapReport.ts` — paste verbatim, or adapt the `OUT_DIR` and `TOP_N` constants.
+
+```ts
+// tests/heapReport.ts
+import v8 from "node:v8";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterAll } from "bun:test";
+
+const OUT_DIR = resolve(process.cwd(), ".crust/heap");
+const TOP_N = 10;
+
+const startedAt = performance.now();
+const rssAtStart = process.memoryUsage.rss();
+
+type HeapSnapshot = {
+  nodes: number[];
+  nodeClassNames: string[];
+};
+
+// Bun's heap snapshot (v3 Inspector format) packs nodes as a flat array
+// with stride 4: [id, size, classIdx, flags] per node.
+const NODE_STRIDE = 4;
+const CLASS_IDX_OFFSET = 2;
+
+function topClasses(snap: HeapSnapshot, n: number): Array<[string, number]> {
+  const counts = new Map<string, number>();
+  for (let i = 0; i < snap.nodes.length; i += NODE_STRIDE) {
+    const classIdx = snap.nodes[i + CLASS_IDX_OFFSET] as number;
+    const name = snap.nodeClassNames[classIdx] ?? "<unknown>";
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function emitReport(): void {
+  try {
+    const elapsedMs = performance.now() - startedAt;
+    const mem = process.memoryUsage();
+    const snap = Bun.generateHeapSnapshot() as HeapSnapshot;
+
+    mkdirSync(OUT_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const file = resolve(OUT_DIR, `tests-${stamp}.heapsnapshot`);
+    const written = v8.writeHeapSnapshot(file);
+
+    const top = topClasses(snap, TOP_N);
+    const lines: string[] = [];
+    lines.push("");
+    lines.push("─── heap report ───────────────────────────────");
+    lines.push(`elapsed:      ${elapsedMs.toFixed(0)} ms`);
+    lines.push(`rss:          ${fmtBytes(mem.rss)} (Δ ${fmtBytes(mem.rss - rssAtStart)})`);
+    lines.push(`heap used:    ${fmtBytes(mem.heapUsed)} / ${fmtBytes(mem.heapTotal)}`);
+    lines.push(`external:     ${fmtBytes(mem.external)}`);
+    lines.push(`nodes:        ${(snap.nodes.length / NODE_STRIDE).toLocaleString()}`);
+    lines.push(`snapshot:     ${written}`);
+    lines.push(`top ${TOP_N} classes (by node count):`);
+    for (const [name, count] of top) {
+      lines.push(`  ${count.toString().padStart(8)}  ${name}`);
+    }
+    lines.push("───────────────────────────────────────────────");
+    process.stderr.write(`${lines.join("\n")}\n`);
+  } catch (err) {
+    process.stderr.write(`[heapReport] failed: ${(err as Error).message}\n`);
+  }
+}
+
+let emitted = false;
+function once(): void {
+  if (emitted) return;
+  emitted = true;
+  emitReport();
+}
+
+process.on("beforeExit", once);
+process.on("exit", once);
+// Bun's test runner short-circuits process exit hooks, so also register an
+// afterAll. The preload runs once per test file, so afterAll is registered
+// per file; the `once` guard ensures the report is emitted only once.
+afterAll(once);
+```
+
+## What you'll see
+
+After `bun test` finishes, you get an extra block on stderr:
+
+```text
+─── heap report ───────────────────────────────
+elapsed:      1,842 ms
+rss:          112.4 MiB (Δ 48.2 MiB)
+heap used:    61.7 MiB / 78.4 MiB
+external:     3.1 MiB
+nodes:        412,193
+snapshot:     /repo/.crust/heap/tests-2026-05-22T22-10-04-114Z.heapsnapshot
+top 10 classes (by node count):
+   148,221  string
+    51,402  Object
+    32,114  Array
+     ...
+───────────────────────────────────────────────
+```
+
+Each field, plainly:
+
+| Field | What it means |
+|---|---|
+| `elapsed` | Wall time from preload load to process exit. |
+| `rss` | Resident set size at exit. Δ is the delta from when the preload first loaded. |
+| `heap used / heap total` | Live JS heap vs. heap reserved by the runtime. |
+| `external` | Bytes held by C++ objects bound to JS — buffers, etc. |
+| `nodes` | Total objects in the heap snapshot. Big number = lots of live JS. |
+| `snapshot` | Absolute path to the `.heapsnapshot` for Chrome DevTools. |
+| `top N classes` | Highest-count constructor names in the snapshot. The usual suspects (`string`, `Object`, `Array`) lead; what matters is when your *own* classes climb above the noise. |
+
+## Loading the snapshot in DevTools
+
+1. Open Chrome / Edge → DevTools → **Memory** tab.
+2. Click **Load profile…** in the toolbar.
+3. Pick the latest `.heapsnapshot` from `.crust/heap/`.
+4. Switch the view to **Comparison** to diff two runs, or **Containment** to walk the retention tree.
+
+If you snapshot once at the start of the suite and once at the end (via two preloads, or by patching the file to emit at both `beforeExit` and an early `setTimeout`), DevTools' comparison view will show exactly which classes grew between the two — that's the leak.
+
+## Knobs
+
+| Constant | What it does |
+|---|---|
+| `OUT_DIR` | Where snapshots land. Default `.crust/heap/` — add it to your `.gitignore`. |
+| `TOP_N` | How many class rows to print. 10 is enough to spot anomalies without flooding stderr. |
+| Preload list | Add more preloads in `bunfig.toml` — they all run before tests. Order matters only if you reference shared state. |
+
+## Suite-level vs. per-test
+
+The `once` guard means you get **one report per `bun test` invocation**, not per file or per test. If you want per-test snapshots, register `afterEach(once)` instead and remove the `emitted` guard — but be ready for a lot of files and noticeable suite slowdown (snapshotting is not free).
+
+## Tips
+
+- **Gitignore the output folder.** Snapshots are large (tens of MB) and not interesting to commit:
+  ```text
+  # .gitignore
+  .crust/heap/
+  ```
+- **Track RSS over time.** Stash the report's `rss:` line from each CI run. A monotonic climb across builds usually means an accumulator that isn't getting reset.
+- **Don't trust `heap used` alone.** Bun's GC is generous about reserving heap; `rss` is the number your kernel cares about.
+- **Pair with `time "label"`** if you want to bracket a specific stage instead of the whole suite.
+
+## Related
+
+- [Stress testing](/docs/recipes/stress-testing) — pair heap snapshots with `--count 10000` to find allocation regressions in pipeline code.
+- [Quickstart — Pipeline methods](/docs/quickstart#pipeline-methods-ts) — refresher on the TS API the preload reaches for.

@@ -1,0 +1,85 @@
+---
+import Layout from './Layout.astro';
+import Sidebar from '../components/Sidebar.astro';
+
+interface Props {
+	title: string;
+	description?: string;
+	frontmatter?: { title?: string; description?: string };
+}
+
+const fm = Astro.props.frontmatter ?? {};
+const title = Astro.props.title ?? fm.title ?? 'Docs';
+const description = Astro.props.description ?? fm.description;
+const fullTitle = `${title} · Crust docs`;
+---
+
+<Layout title={fullTitle} description={description}>
+	<div class="docs-shell">
+		<div class="docs-grid">
+			<Sidebar />
+			<article class="content">
+				<header class="header">
+					<h1>{title}</h1>
+					{description && <p class="description">{description}</p>}
+				</header>
+				<div class="prose">
+					<slot />
+				</div>
+			</article>
+		</div>
+	</div>
+</Layout>
+
+<style>
+	.docs-shell {
+		max-width: var(--page-max);
+		margin: 0 auto;
+		padding: 2rem 1.5rem 4rem;
+	}
+	.docs-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 2.5rem;
+	}
+	.content {
+		min-width: 0;
+		max-width: 80ch;
+	}
+	.header {
+		margin-bottom: 2rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.header h1 {
+		margin: 0;
+	}
+	.description {
+		color: var(--fg-muted);
+		font-size: 1.1rem;
+		margin: 0.65rem 0 0;
+	}
+	.prose :global(h2) {
+		margin-top: 2.5em;
+	}
+	.prose :global(h2):first-child {
+		margin-top: 0;
+	}
+	.prose :global(pre) {
+		font-size: 0.88rem;
+	}
+	.prose :global(a) {
+		text-decoration: underline;
+		text-decoration-color: var(--accent-2);
+		text-underline-offset: 3px;
+	}
+	.prose :global(a:hover) {
+		text-decoration-color: var(--accent);
+	}
+
+	@media (min-width: 900px) {
+		.docs-grid {
+			grid-template-columns: 220px minmax(0, 1fr);
+		}
+	}
+</style>

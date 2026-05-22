@@ -1,0 +1,77 @@
+---
+interface Props {
+	href: string;
+	title: string;
+	tag?: string;
+}
+const { href, title, tag } = Astro.props;
+---
+
+<a class="card" href={href}>
+	<div class="head">
+		{tag && <span class="tag">{tag}</span>}
+		<h3>{title}</h3>
+	</div>
+	<div class="body">
+		<slot />
+	</div>
+	<span class="cta">Read recipe →</span>
+</a>
+
+<style>
+	.card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 1.4rem;
+		color: var(--fg);
+		transition: all 0.2s ease;
+	}
+	.card:hover {
+		border-color: var(--accent);
+		transform: translateY(-2px);
+		color: var(--fg);
+	}
+	.head {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.tag {
+		display: inline-block;
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--accent);
+		background: var(--bg-elevated);
+		border: 1px solid var(--border);
+		padding: 0.15rem 0.5rem;
+		border-radius: 4px;
+		width: fit-content;
+	}
+	.card h3 {
+		margin: 0;
+		font-size: 1.1rem;
+	}
+	.body {
+		color: var(--fg-muted);
+		font-size: 0.95rem;
+		flex: 1;
+	}
+	.body :global(p) {
+		margin: 0;
+	}
+	.body :global(code) {
+		font-size: 0.85em;
+	}
+	.cta {
+		color: var(--accent);
+		font-weight: 600;
+		font-size: 0.9rem;
+		margin-top: 0.25rem;
+	}
+</style>

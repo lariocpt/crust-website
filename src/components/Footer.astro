@@ -1,0 +1,71 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+	<div class="container row">
+		<div class="lead">
+			<span class="mark" aria-hidden="true">🥖</span>
+			<strong>crust</strong>
+			<span class="muted">— a freshly baked bun shell</span>
+		</div>
+		<nav class="links" aria-label="Footer">
+			<a href="/docs/intro">Docs</a>
+			<a href="/docs/quickstart">Quickstart</a>
+			<a href="/docs/recipes">Recipes</a>
+			<a href="https://github.com/larioborges-timbuk2/crust" rel="noopener" target="_blank">GitHub</a>
+			<a href="https://github.com/larioborges-timbuk2/crust/issues" rel="noopener" target="_blank">Issues</a>
+		</nav>
+		<small class="copy">© {year} · MIT licensed</small>
+	</div>
+</footer>
+
+<style>
+	.site-footer {
+		border-top: 1px solid var(--border);
+		background: var(--bg-soft);
+		padding: 2.5rem 0;
+		margin-top: 5rem;
+	}
+	.row {
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+		align-items: flex-start;
+	}
+	.lead {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-family: var(--font-mono);
+	}
+	.lead .mark {
+		font-size: 1.2rem;
+	}
+	.lead strong {
+		color: var(--fg);
+	}
+	.links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 1.25rem;
+	}
+	.links a {
+		color: var(--fg-muted);
+		font-size: 0.95rem;
+	}
+	.links a:hover {
+		color: var(--accent);
+	}
+	.copy {
+		color: var(--fg-faint);
+		font-size: 0.85rem;
+	}
+	@media (min-width: 768px) {
+		.row {
+			flex-direction: row;
+			align-items: center;
+			justify-content: space-between;
+		}
+	}
+</style>

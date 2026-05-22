@@ -1,23 +1,69 @@
+---
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import '../styles/global.css';
+
+interface Props {
+	title?: string;
+	description?: string;
+}
+
+const {
+	title = 'Crust — a freshly baked bun shell',
+	description = 'Crust is a Bun-powered shell with first-class pipelines. Bash, TypeScript, HTTP verbs, globs, and parallel workers compose under one | / .pipe() abstraction.',
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site).toString();
+---
+
 <!doctype html>
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		<link rel="canonical" href={canonical} />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<link rel="icon" href="/favicon.ico" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro Basics</title>
+
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<meta property="og:type" content="website" />
+		<meta property="og:url" content={canonical} />
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={title} />
+		<meta name="twitter:description" content={description} />
+
+		<meta name="theme-color" content="#1a120b" />
 	</head>
 	<body>
-		<slot />
+		<a href="#main" class="skip">Skip to content</a>
+		<Header />
+		<main id="main">
+			<slot />
+		</main>
+		<Footer />
+
+		<style>
+			.skip {
+				position: absolute;
+				left: -9999px;
+				top: 0;
+			}
+			.skip:focus {
+				left: 1rem;
+				top: 1rem;
+				background: var(--accent);
+				color: var(--bg);
+				padding: 0.5rem 1rem;
+				border-radius: 6px;
+				z-index: 1000;
+			}
+			main {
+				min-height: 60vh;
+			}
+		</style>
 	</body>
 </html>
-
-<style>
-	html,
-	body {
-		margin: 0;
-		width: 100%;
-		height: 100%;
-	}
-</style>

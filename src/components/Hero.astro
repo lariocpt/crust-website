@@ -1,0 +1,185 @@
+---
+import InstallBlock from './InstallBlock.astro';
+---
+
+<section class="hero">
+	<div class="bg" aria-hidden="true"></div>
+	<div class="container inner">
+		<span class="eyebrow">v0.1 · pipelines first</span>
+		<h1>
+			A freshly baked <span class="grad">bun shell</span>,<br />
+			just as versatile, just as <span class="grad">bun</span>.
+		</h1>
+		<p class="lede">
+			Crust is a Bun-powered shell with first-class pipelines. Bash commands, TypeScript
+			lambdas, HTTP verbs, globs, and parallel workers all compose under one
+			<code>|</code> / <code>.pipe()</code> abstraction.
+		</p>
+
+		<div class="install-wrap">
+			<InstallBlock />
+		</div>
+
+		<div class="ctas">
+			<a class="btn primary" href="/docs/quickstart">Quickstart →</a>
+			<a class="btn ghost" href="/docs/intro">Read the docs</a>
+			<a
+				class="btn ghost"
+				href="https://github.com/larioborges-timbuk2/crust"
+				rel="noopener"
+				target="_blank">View on GitHub</a
+			>
+		</div>
+
+		<div class="demo">
+			<div class="demo-bar" aria-hidden="true">
+				<span class="dot r"></span>
+				<span class="dot y"></span>
+				<span class="dot g"></span>
+				<span class="tag">crust</span>
+			</div>
+			<pre class="demo-pre"><code><span class="p">$</span> range(0, 10000) <span class="op">|</span> parallel 100 <span class="op">|</span> GET <span class="s">:3000/health</span> <span class="op">|</span> expect 200 <span class="op">|</span> stats
+<span class="c"># &#123; count: 10001, durationMs: 814, p50: 5, p95: 17, p99: 41 &#125;</span>
+
+<span class="p">$</span> fixtures/<span class="g">*.json</span> <span class="op">|</span> POST <span class="s">:3000/users</span> <span class="op">|</span> expect 201
+<span class="p">$</span> <span class="g">**/*.log</span> <span class="op">|</span> (l <span class="op">=&gt;</span> l.includes(<span class="s">'ERROR'</span>)) <span class="op">|</span> wc -l
+<span class="p">$</span> sql <span class="s">"select email from users limit 5"</span> <span class="op">|</span> (r <span class="op">=&gt;</span> r.email)</code></pre>
+		</div>
+	</div>
+</section>
+
+<style>
+	.hero {
+		position: relative;
+		padding: 5rem 0 3rem;
+		overflow: hidden;
+	}
+	.bg {
+		position: absolute;
+		inset: -10% -5% auto -5%;
+		height: 70%;
+		z-index: -1;
+		background:
+			radial-gradient(40% 50% at 20% 30%, var(--accent-glow), transparent 70%),
+			radial-gradient(35% 45% at 80% 10%, rgba(200, 84, 42, 0.18), transparent 70%);
+		filter: blur(60px);
+	}
+	.inner {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+	h1 {
+		font-size: clamp(2.2rem, 5.5vw, 4rem);
+		line-height: 1.05;
+		margin: 0;
+		letter-spacing: -0.025em;
+		font-weight: 700;
+	}
+	.grad {
+		background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+	}
+	.lede {
+		font-size: clamp(1.05rem, 1.6vw, 1.2rem);
+		color: var(--fg-muted);
+		max-width: 60ch;
+		margin: 0;
+	}
+	.lede code {
+		color: var(--accent);
+		font-size: 0.95em;
+	}
+	.install-wrap {
+		max-width: 720px;
+		margin-top: 0.5rem;
+	}
+	.ctas {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.6rem;
+		margin-top: 0.25rem;
+	}
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.7rem 1.1rem;
+		border-radius: 8px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		border: 1px solid var(--border);
+		transition: all 0.15s ease;
+	}
+	.btn.primary {
+		background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+		color: var(--bg);
+		border-color: transparent;
+	}
+	.btn.primary:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 8px 24px rgba(231, 169, 85, 0.35);
+		color: var(--bg);
+	}
+	.btn.ghost {
+		color: var(--fg);
+		background: var(--bg-soft);
+	}
+	.btn.ghost:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.demo {
+		margin-top: 2.5rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--code-bg);
+		overflow: hidden;
+		box-shadow: var(--shadow);
+		max-width: 880px;
+	}
+	.demo-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.6rem 0.9rem;
+		background: var(--bg-elevated);
+		border-bottom: 1px solid var(--border);
+	}
+	.dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		display: inline-block;
+	}
+	.dot.r { background: #e26060; }
+	.dot.y { background: #e7a955; }
+	.dot.g { background: #8fb872; }
+	.tag {
+		margin-left: 0.6rem;
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
+		color: var(--fg-muted);
+	}
+	.demo-pre {
+		background: var(--code-bg);
+		border: 0;
+		border-radius: 0;
+		margin: 0;
+		padding: 1.1rem 1.2rem;
+		font-size: 0.85rem;
+		color: var(--fg);
+	}
+	.demo-pre .p { color: var(--accent); user-select: none; }
+	.demo-pre .op { color: var(--accent-2); }
+	.demo-pre .s { color: #b9c47a; }
+	.demo-pre .g { color: #b9c47a; }
+	.demo-pre .c { color: var(--fg-faint); font-style: italic; }
+
+	@media (max-width: 600px) {
+		.hero { padding-top: 3rem; }
+		.demo-pre { font-size: 0.76rem; padding: 0.9rem; }
+	}
+</style>

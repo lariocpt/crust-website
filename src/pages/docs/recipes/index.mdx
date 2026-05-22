@@ -1,0 +1,31 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Recipes
+description: End-to-end crust workflows you can lift directly.
+---
+
+import RecipeCard from '../../../components/RecipeCard.astro';
+
+Hand-picked workflows. Each recipe is a focused scenario — what the goal is, the crust pipeline that gets you there, and the knobs you'll want to turn.
+
+<div class="recipe-grid">
+  <RecipeCard href="/docs/recipes/stress-testing" title="Stress testing" tag="Load">
+    Push <code>test-fixture --count N --threads M</code> at high volume. Randomized inputs via the <code>random</code> helper, p50/p95/p99 reports.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/mock-server" title="OpenAPI mock server" tag="HTTP">
+    Boot a <code>Bun.serve</code> mock from any OpenAPI 3.x spec. Example-first response selection, cluster mode for Linux.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/api-smoke-tests" title="API smoke tests" tag="HTTP">
+    <code>fixtures/*.json | POST :3000/users | expect 201</code>. Globs → HTTP → assertions in one line.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/log-mining" title="Log mining" tag="Files">
+    Recursive globs piped through grep, lambdas, and TS predicates for fast forensic queries.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/heap-snapshots" title="Heap snapshots during testing" tag="Profiling">
+    A Bun <code>[test].preload</code> that writes a <code>.heapsnapshot</code> and prints rss / heap / top-classes after every <code>bun test</code>.
+  </RecipeCard>
+</div>

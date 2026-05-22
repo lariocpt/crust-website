@@ -1,0 +1,139 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Log mining
+description: Recursive globs piped through grep, lambdas, and TS predicates for fast forensic queries.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** answer "which logs contain X, how many times, and what's around them" using crust's mixed shell + TS pipeline. Use `grep` when `grep` is enough; reach for a TS lambda when you need JSON parsing, structural filters, or per-line shaping.
+
+## Count error lines across a tree
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  **/*.log | grep ERROR | wc -l
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // glob + line stream + filter + reduce
+  const errors = await glob("**/*.log")
+    .pipe(async (p) => Bun.file(p).text())
+    .pipe((text: string) => text.split("\n"))
+    .map((line: string) => line)
+    .filter((line: string) => line.includes("ERROR"))
+    .collect();
+
+  console.log(errors.length);
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Filter with a predicate lambda
+
+When you want a structural filter — say, only lines from a specific user — a lambda is friendlier than a `grep` regex.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Read every line, keep ones with both ERROR and user=42
+  **/*.log | (l => l.includes('ERROR') && l.includes('user=42'))
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  await read("application.log")
+    .filter((line) => line.includes("ERROR") && line.includes("user=42"))
+    .to(write("/tmp/user-42-errors.log"));
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+The `(line => …)` form is a per-item TS lambda. Predicate semantics: truthy returns pass through, false ones are dropped. Thrown errors fail the pipeline.
+
+## Structured logs: JSON per line
+
+If your logs are JSON-per-line, parsing and projecting is one lambda each.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Read each .log file, parse lines as JSON, keep severity=error,
+  # project the message field
+  **/*.json.log
+    | (path => Bun.file(path).text())
+    | (text => text.split('\n').filter(Boolean))
+    | (line => JSON.parse(line))
+    | (j => j.severity === 'error')
+    | (j => j.msg)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Same pipeline, .ts file (bun script.ts)
+  await glob("**/*.json.log")
+    .pipe(async (path) => Bun.file(path).text())
+    .pipe((text: string) => text.split("\n").filter(Boolean))
+    .map((line: string) => JSON.parse(line) as { severity: string; msg: string })
+    .filter((j) => j.severity === "error")
+    .map((j) => j.msg)
+    .to(write("/tmp/errors.txt"));
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+> Function-as-source flattens array return values. A lambda that returns `["a", "b", "c"]` emits three items, not one array. That's why `(text => text.split('\n'))` works as a per-file fan-out.
+
+## Group + count via reduce
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Count occurrences per error code (TS lambdas + the | operator)
+  **/*.log
+    | grep ERROR
+    | (l => (l.match(/ERR_[A-Z0-9_]+/) ?? [null])[0])
+    | (c => c)
+  # → stream the codes; pipe into your favorite counter
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Cleaner in TS — reduce into a map
+  const counts = await glob("**/*.log")
+    .pipe(async (p) => Bun.file(p).text())
+    .pipe((t: string) => t.split("\n"))
+    .map((l: string) => l.match(/ERR_[A-Z0-9_]+/)?.[0] ?? null)
+    .filter((c): c is string => c !== null)
+    .reduce<Record<string, number>>((acc, code) => {
+      acc[code] = (acc[code] ?? 0) + 1;
+      return acc;
+    }, {});
+
+  console.table(counts);
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Tail-and-watch isn't built in (yet)
+
+There's no native `tail -f` integration in v0.1. For now, shell out:
+
+```bash
+tail -F application.log | (l => l.includes('ERROR'))
+```
+
+`tail -F` produces a continuous stream on stdout; crust's reader handles `\n`-terminated lines from a pipe.
+
+## Tips
+
+- **Mix `grep` and lambdas** — `grep` is unbeatable for plain substring/regex filters; reserve lambdas for things grep can't see (JSON shape, async lookups, multi-line state).
+- **`read(path)` ≠ `Bun.file(path).text()`** — `read()` streams lines (`Pipeline<string>`); `Bun.file().text()` returns the whole file. Pick based on whether you can fit the file in memory.
+- **Pair with `time "label"`** to know how long a forensic query takes — the timer fires even if a downstream stage throws.
+
+## Related
+
+- [Intro](/docs/intro) — refresher on sources, transforms, sinks.
+- [Quickstart](/docs/quickstart) — every source/transform/sink in one tour.

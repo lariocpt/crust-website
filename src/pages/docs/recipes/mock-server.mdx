@@ -1,0 +1,140 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Mock server (OpenAPI)
+description: Boot a Bun.serve instance that mocks every operation in an OpenAPI 3.x spec.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** stand up a working HTTP mock from a Swagger / OpenAPI 3.x spec — useful for frontend dev before the backend exists, demoing a pipeline, or seeding fixture tests against an upstream you don't want to spin up.
+
+## Boot a mock
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Local spec
+  mock-server --swagger ./openapi.yaml --port 4000
+
+  # Remote spec
+  mock-server --swagger https://petstore3.swagger.io/api/v3/openapi.json --port 4747
+
+  # OS-assigned port, bind to localhost only
+  mock-server --swagger ./spec.json --port 0 --host 127.0.0.1
+
+  # Linux cluster mode — N workers sharing the port via SO_REUSEPORT
+  mock-server --swagger ./openapi.yaml --port 4000 --cluster 4
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Embed in a test harness — start + stop programmatically
+  import { startMockServer } from "crust/mockServer";
+
+  const handle = await startMockServer({
+    swagger: "./openapi.yaml",
+    port: 4000,
+    host: "0.0.0.0",
+  });
+
+  // ... your tests ...
+
+  await handle.stop();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. |
+| `--port N` | `3000` | `0` requests an ephemeral OS-assigned port. |
+| `--host addr` | `0.0.0.0` | Bind address. |
+| `--cluster N` | `1` | Linux only. Forks N workers sharing the port; each request log line prefixed `[wN]`. |
+
+## How responses are picked
+
+The server walks the operation in this order to choose a body:
+
+1. `content.<media>.example` wins outright.
+2. Otherwise the first entry in `content.<media>.examples`.
+3. Otherwise the schema is walked:
+   - `string` → `"string"` (or a format-aware default for `email`, `date-time`, `uuid`, `uri`).
+   - `integer` / `number` → `0`.
+   - `boolean` → `false`.
+   - `array` → `[item]`.
+   - `object` → every property generated.
+   - `enum` → first value.
+   - `allOf` → merged.
+   - `oneOf` / `anyOf` → first branch.
+4. Local `$ref`s into `components.schemas.*` are resolved (cyclic refs return `null`).
+
+**Status code selection** within a matched operation:
+
+```
+200 → 201 → first 2xx → default → first defined
+```
+
+`application/json` content is preferred; otherwise the first content type wins.
+
+**Routing**: literal segments take precedence over `{param}` siblings, so `GET /pets/mine` wins over `GET /pets/{id}`.
+
+## What you'll see
+
+Unmatched paths return `404`. Matched paths with the wrong method return `405`. Per request, one line goes to stderr:
+
+```text
+GET    /pets        200  3ms
+POST   /pets        201  2ms
+DELETE /pets/99     404  0ms
+```
+
+`Ctrl-C` (or `SIGTERM`) shuts the server down cleanly.
+
+## Pairing with crust pipelines
+
+The mock is just an HTTP server — drive it with normal crust pipelines.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Smoke-test every fixture against the mock
+  mock-server --swagger ./openapi.yaml --port 4000 &
+  test-fixture --target fixtures/*.crust.ts --out report.md
+
+  # Burn-in: 10k requests across 100 workers
+  range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Start the mock, run a burn-in, tear it down
+  import { startMockServer } from "crust/mockServer";
+
+  const mock = await startMockServer({ swagger: "./openapi.yaml", port: 4000 });
+
+  await range(0, 9999)
+    .pipe(parallel(100, () => fetch("http://localhost:4000/pets")))
+    .pipe(expectStage(200))
+    .to(stats());
+
+  await mock.stop();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## v0.1 limits
+
+Honest about what doesn't work yet:
+
+- Swagger 2.0
+- Remote `$ref` resolution
+- Request validation (the mock accepts anything that routes)
+- Faker-style data (every `string` is just `"string"` unless the format is known)
+- Hot-reload on spec changes
+
+## Related
+
+- [API smoke tests](/docs/recipes/api-smoke-tests) — fixtures + `expect 201` against the mock.
+- [Stress testing](/docs/recipes/stress-testing) — `--count` + `--threads` for high-volume runs against the mock.

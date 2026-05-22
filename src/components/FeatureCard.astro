@@ -1,0 +1,50 @@
+---
+interface Props {
+	icon: string;
+	title: string;
+}
+const { icon, title } = Astro.props;
+---
+
+<article class="card">
+	<div class="icon" aria-hidden="true">{icon}</div>
+	<h3>{title}</h3>
+	<div class="body">
+		<slot />
+	</div>
+</article>
+
+<style>
+	.card {
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 1.5rem 1.4rem 1.4rem;
+		transition: all 0.2s ease;
+	}
+	.card:hover {
+		border-color: var(--accent);
+		transform: translateY(-2px);
+	}
+	.icon {
+		font-size: 1.8rem;
+		line-height: 1;
+		margin-bottom: 0.85rem;
+	}
+	.card h3 {
+		font-size: 1.05rem;
+		margin: 0 0 0.5rem;
+		color: var(--fg);
+	}
+	.body {
+		color: var(--fg-muted);
+		font-size: 0.95rem;
+		line-height: 1.55;
+	}
+	.body :global(p) {
+		margin: 0;
+	}
+	.body :global(code) {
+		font-size: 0.85em;
+	}
+</style>

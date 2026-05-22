@@ -1,0 +1,97 @@
+---
+const path = Astro.url.pathname;
+const isActive = (prefix: string) =>
+	prefix === '/' ? path === '/' : path.startsWith(prefix);
+---
+
+<header class="site-header">
+	<div class="container bar">
+		<a href="/" class="brand" aria-label="Crust home">
+			<span class="mark" aria-hidden="true">🥖</span>
+			<span class="wordmark">crust</span>
+		</a>
+		<nav class="nav" aria-label="Primary">
+			<a href="/docs/intro" class:list={[{ active: isActive('/docs') && !isActive('/docs/recipes') }]}>Docs</a>
+			<a href="/docs/quickstart" class:list={[{ active: path === '/docs/quickstart' }]}>Quickstart</a>
+			<a href="/docs/recipes" class:list={[{ active: isActive('/docs/recipes') }]}>Recipes</a>
+			<a href="https://github.com/larioborges-timbuk2/crust" rel="noopener" target="_blank" class="github">
+				GitHub
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+					<path d="M7 17L17 7M17 7H8M17 7v9" />
+				</svg>
+			</a>
+		</nav>
+	</div>
+</header>
+
+<style>
+	.site-header {
+		position: sticky;
+		top: 0;
+		z-index: 50;
+		background: rgba(26, 18, 11, 0.78);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		border-bottom: 1px solid var(--border);
+	}
+	.bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		height: 60px;
+	}
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		color: var(--fg);
+		font-weight: 700;
+		font-size: 1.1rem;
+		letter-spacing: -0.01em;
+	}
+	.brand:hover {
+		color: var(--accent);
+	}
+	.mark {
+		font-size: 1.35rem;
+		line-height: 1;
+	}
+	.wordmark {
+		font-family: var(--font-mono);
+	}
+	.nav {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.nav a {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		color: var(--fg-muted);
+		padding: 0.5rem 0.85rem;
+		border-radius: 8px;
+		font-size: 0.95rem;
+		font-weight: 500;
+	}
+	.nav a:hover {
+		color: var(--fg);
+		background: var(--bg-soft);
+	}
+	.nav a.active {
+		color: var(--accent);
+	}
+	.github svg {
+		opacity: 0.7;
+	}
+	@media (max-width: 600px) {
+		.nav a {
+			padding: 0.5rem 0.55rem;
+			font-size: 0.9rem;
+		}
+		.nav .github {
+			display: none;
+		}
+	}
+</style>

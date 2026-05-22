@@ -1,0 +1,130 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Stress testing
+description: Run any .crust.ts fixture N times across M threads with randomized inputs and a p50/p95/p99 report.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** push a single fixture (or a glob of fixtures) at high volume with varied inputs, then read the latency distribution out of a JSON or Markdown report.
+
+## The shape of it
+
+`--count N` runs every matched fixture N times. Combine with `--threads M` for concurrency. When `N > 1` the report adds a stress block per fixture: `p50`, `p95`, `p99`, mean, min, max, plus the status-code distribution. Each result is tagged with its `iter` index so failures point at the offending iteration.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # 1000 iterations, 32 concurrent workers, JSON report
+  test-fixture --target stress.crust.ts --count 1000 --threads 32 --out report.json
+
+  # Same idea, glob of fixtures, Markdown summary
+  test-fixture --target 'fixtures/**/*.crust.ts' --count 500 --threads 16 --out report.md
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Programmatic runner — embed in CI, gate on percentiles
+  import { runFixtures } from "crust/testFixture";
+
+  const report = await runFixtures({
+    target: "stress.crust.ts",
+    count: 1000,
+    threads: 32,
+    out: "report.json",
+  });
+
+  if (report.stress.p95 > 250) {
+    console.error(`p95 regression: ${report.stress.p95}ms`);
+    process.exit(1);
+  }
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Randomized inputs — `random`
+
+To vary inputs across iterations, use **thunks** in `input` together with the `random` helper. A thunk (zero-argument function) is resolved + awaited per iteration; a function with at least one parameter is treated as a predicate matcher over the actual output value.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Run the randomized fixture against your service
+  test-fixture --target stress.crust.ts --count 1000 --threads 32 --out report.json
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // stress.crust.ts
+  import { random } from "crust/testFixture/random";
+
+  const userIds = [1, 2, 3, 4, 5, 6, 7, 8];
+
+  export default {
+    input: {
+      url: () => `http://localhost:3000/users/${random.choice(userIds)}`,
+      method: "POST",
+      body: () => ({
+        name: random.string(8),
+        age: random.int(18, 99),
+        tier: random.weighted([
+          ["free", 7] as const,
+          ["pro", 3] as const,
+        ]),
+        id: random.uuid(),
+      }),
+    },
+    output: { status: (s: number) => s < 500 },
+  };
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## `random` helpers
+
+```ts
+random.int(min, max);                 // inclusive integer
+random.float(min, max);
+random.bool(p?);                      // weighted coin, default 0.5
+random.choice(arr);                   // uniform element
+random.from(iter);                    // works with any iterable
+random.weighted([[v, w], ...]);       // weighted choice
+random.string(len, alphabet?);
+random.uuid();
+random.shuffle(arr);
+```
+
+## Reading the report
+
+The report format is picked from `--out`'s extension: `.json`, `.md`, anything else is plain text. With no `--out`, you get a colored, folder-grouped summary on stdout.
+
+```json
+{
+  "name": "POST /users randomized",
+  "iterations": 1000,
+  "threads": 32,
+  "stress": {
+    "mean": 12.4,
+    "min": 4,
+    "max": 187,
+    "p50": 9,
+    "p95": 31,
+    "p99": 62
+  },
+  "statusCodes": { "201": 994, "409": 6 }
+}
+```
+
+Exit codes: `0` all pass, `1` any failure or error, `2` no files matched or bad args.
+
+## Tips
+
+- **Bake-out runs**: `--count 1` first to confirm the fixture works at all. Once green, bump to `--count 100` to find flakiness, then `--count 1000+` for steady-state load.
+- **Thread counts**: start with `--threads = vCPUs`. Higher only helps if your service is I/O-bound.
+- **Coverage via `random.weighted`**: weight rare branches up during stress runs so they actually fire (e.g. tier `pro` 3:7 above ensures it shows up).
+- **AOT runner**: when installed via `install.sh`, the runner is AOT-compiled to a host-arch bytecode binary at `~/.crust/bin/crust-test-fixture` for fast cold-start. The shell builtin execs that binary if present and falls back to in-process dynamic import otherwise.
+
+## Related
+
+- [API smoke tests](/docs/recipes/api-smoke-tests) — same fixtures, single-iteration mode.
+- [Mock server](/docs/recipes/mock-server) — pair stress mode against an OpenAPI mock when the real backend isn't ready.

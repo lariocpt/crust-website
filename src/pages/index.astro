@@ -1,11 +1,239 @@
 ---
-import Welcome from '../components/Welcome.astro';
 import Layout from '../layouts/Layout.astro';
-
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+import Hero from '../components/Hero.astro';
+import FeatureCard from '../components/FeatureCard.astro';
 ---
 
 <Layout>
-	<Welcome />
+	<Hero />
+
+	<section class="section">
+		<div class="container">
+			<span class="eyebrow">Why crust</span>
+			<h2>Bash and TypeScript, one pipeline.</h2>
+			<p class="section-lede">
+				Shell stages and TS lambdas are equal citizens — both sit on the same pipeline. Pipe
+				anything into anything: globs into HTTP, ranges into parallel workers, SQL rows
+				into lambdas.
+			</p>
+			<div class="grid">
+				<FeatureCard icon="🥖" title="Pipelines, first-class">
+					<p>
+						Every stage produces a stream — <code>Pipeline&lt;T&gt;</code>. Compose with
+						<code>|</code> at the shell line or <code>.pipe()</code> in TypeScript.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="🔁" title="HTTP verbs as stages">
+					<p>
+						<code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>PATCH</code>,
+						<code>DELETE</code> ship as pipeline stages — auto JSON encoding, status
+						matchers, retries.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="⚡" title="Parallel workers built in">
+					<p>
+						<code>range(0, 9999) | parallel 100 | GET :3000/health | stats</code> — N
+						concurrent workers, order-preserving.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="🧪" title="Fixture testing & stress mode">
+					<p>
+						<code>test-fixture --count 1000 --threads 32</code> runs your
+						<code>.crust.ts</code> fixtures with p50/p95/p99 reports.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="🌐" title="OpenAPI mock server">
+					<p>
+						<code>mock-server --swagger ./openapi.yaml --port 4000</code> — boot a
+						spec-driven mock with example-first response selection.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="🔌" title="One-liner mode">
+					<p>
+						Stay in your shell — call <code>crust -c '…'</code> from bash/zsh/fish for the
+						lines where pipeline syntax wins.
+					</p>
+				</FeatureCard>
+			</div>
+		</div>
+	</section>
+
+	<section class="section">
+		<div class="container">
+			<span class="eyebrow">Recipes</span>
+			<h2>From smoke tests to stress runs.</h2>
+			<p class="section-lede">
+				Hand-picked workflows you can lift into your own pipelines today.
+			</p>
+			<div class="recipe-grid">
+				<a class="recipe" href="/docs/recipes/stress-testing">
+					<h3>Stress testing</h3>
+					<p>
+						<code>--count</code> + <code>--threads</code> + <code>random</code> helpers for
+						randomized, high-volume fixture runs.
+					</p>
+					<span class="more">Read recipe →</span>
+				</a>
+				<a class="recipe" href="/docs/recipes/mock-server">
+					<h3>OpenAPI mock server</h3>
+					<p>
+						Boot a Bun.serve mock from any Swagger / OpenAPI 3.x spec — front-end before
+						backend.
+					</p>
+					<span class="more">Read recipe →</span>
+				</a>
+				<a class="recipe" href="/docs/recipes/api-smoke-tests">
+					<h3>API smoke tests</h3>
+					<p>
+						<code>fixtures/*.json | POST :3000/users | expect 201</code> in one line —
+						globs, HTTP, assertions.
+					</p>
+					<span class="more">Read recipe →</span>
+				</a>
+				<a class="recipe" href="/docs/recipes/log-mining">
+					<h3>Log mining</h3>
+					<p>
+						Recursive globs piped through grep, lambdas, and TS predicates for fast
+						forensic queries.
+					</p>
+					<span class="more">Read recipe →</span>
+				</a>
+				<a class="recipe" href="/docs/recipes/heap-snapshots">
+					<h3>Heap snapshots during testing</h3>
+					<p>
+						A Bun <code>[test].preload</code> that writes a
+						<code>.heapsnapshot</code> and prints rss / heap / top-classes after every
+						<code>bun test</code>.
+					</p>
+					<span class="more">Read recipe →</span>
+				</a>
+			</div>
+		</div>
+	</section>
+
+	<section class="section cta">
+		<div class="container cta-inner">
+			<h2>Bake it in.</h2>
+			<p>Install in one curl. Make it your terminal or call it from bash for the one-liners.</p>
+			<div class="cta-actions">
+				<a class="btn primary" href="/docs/intro">Get started</a>
+				<a
+					class="btn ghost"
+					href="https://github.com/larioborges-timbuk2/crust"
+					rel="noopener"
+					target="_blank">GitHub</a
+				>
+			</div>
+		</div>
+	</section>
 </Layout>
+
+<style>
+	.section {
+		padding: 4rem 0 2rem;
+	}
+	.section h2 {
+		max-width: 24ch;
+	}
+	.section-lede {
+		color: var(--fg-muted);
+		max-width: 60ch;
+		font-size: 1.05rem;
+		margin-bottom: 2.5rem;
+	}
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		gap: 1rem;
+	}
+	.recipe-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		gap: 1rem;
+	}
+	.recipe {
+		display: block;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 1.5rem 1.4rem;
+		color: var(--fg);
+		transition: all 0.2s ease;
+	}
+	.recipe:hover {
+		border-color: var(--accent);
+		transform: translateY(-2px);
+		color: var(--fg);
+	}
+	.recipe h3 {
+		margin: 0 0 0.5rem;
+		font-size: 1.1rem;
+	}
+	.recipe p {
+		color: var(--fg-muted);
+		font-size: 0.95rem;
+		margin: 0 0 1rem;
+	}
+	.recipe .more {
+		color: var(--accent);
+		font-weight: 600;
+		font-size: 0.9rem;
+	}
+	.recipe code {
+		font-size: 0.82em;
+	}
+
+	.cta {
+		padding: 5rem 0 4rem;
+	}
+	.cta-inner {
+		background: linear-gradient(120deg, var(--bg-soft) 0%, var(--bg-elevated) 100%);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 3rem 2rem;
+		text-align: center;
+	}
+	.cta-inner h2 {
+		max-width: none;
+		margin: 0 0 0.5rem;
+	}
+	.cta-inner p {
+		color: var(--fg-muted);
+		max-width: 48ch;
+		margin: 0 auto 1.75rem;
+	}
+	.cta-actions {
+		display: flex;
+		gap: 0.6rem;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.7rem 1.1rem;
+		border-radius: 8px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		border: 1px solid var(--border);
+		transition: all 0.15s ease;
+	}
+	.btn.primary {
+		background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+		color: var(--bg);
+		border-color: transparent;
+	}
+	.btn.primary:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 8px 24px rgba(231, 169, 85, 0.35);
+		color: var(--bg);
+	}
+	.btn.ghost {
+		color: var(--fg);
+		background: var(--bg-soft);
+	}
+	.btn.ghost:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+</style>

@@ -1,0 +1,124 @@
+---
+interface Props {
+	command?: string;
+	label?: string;
+}
+const {
+	command = 'curl -fsSL https://raw.githubusercontent.com/larioborges-timbuk2/crust/main/install.sh | bash',
+	label = 'Install',
+} = Astro.props;
+---
+
+<div class="install" data-install>
+	<span class="prompt" aria-hidden="true">$</span>
+	<code class="cmd">{command}</code>
+	<button
+		type="button"
+		class="copy"
+		data-copy={command}
+		aria-label={`Copy ${label.toLowerCase()} command to clipboard`}
+	>
+		<svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+			<rect x="9" y="9" width="13" height="13" rx="2" />
+			<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+		</svg>
+		<svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true">
+			<polyline points="20 6 9 17 4 12" />
+		</svg>
+		<span class="label">Copy</span>
+	</button>
+</div>
+
+<style>
+	.install {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		background: var(--code-bg);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.9rem 0.9rem 0.9rem 1.1rem;
+		font-family: var(--font-mono);
+		font-size: 0.95rem;
+		max-width: 100%;
+		overflow: hidden;
+		box-shadow: var(--shadow);
+	}
+	.prompt {
+		color: var(--accent);
+		font-weight: 700;
+		user-select: none;
+	}
+	.cmd {
+		color: var(--fg);
+		background: transparent;
+		border: 0;
+		padding: 0;
+		font-size: inherit;
+		overflow-x: auto;
+		white-space: nowrap;
+		flex: 1;
+		min-width: 0;
+	}
+	.copy {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		background: var(--bg-elevated);
+		color: var(--fg-muted);
+		border: 1px solid var(--border);
+		border-radius: 7px;
+		padding: 0.45rem 0.7rem;
+		font-family: var(--font-sans);
+		font-size: 0.85rem;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		flex-shrink: 0;
+	}
+	.copy:hover {
+		color: var(--fg);
+		border-color: var(--accent);
+	}
+	.copy .icon-check {
+		display: none;
+	}
+	.copy.copied {
+		color: var(--accent);
+		border-color: var(--accent);
+	}
+	.copy.copied .icon-copy {
+		display: none;
+	}
+	.copy.copied .icon-check {
+		display: inline-block;
+	}
+	@media (max-width: 540px) {
+		.copy .label {
+			display: none;
+		}
+		.copy {
+			padding: 0.45rem 0.55rem;
+		}
+	}
+</style>
+
+<script>
+	for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+		btn.addEventListener('click', async () => {
+			const text = btn.getAttribute('data-copy') ?? '';
+			try {
+				await navigator.clipboard.writeText(text);
+				btn.classList.add('copied');
+				const label = btn.querySelector('.label');
+				const prev = label?.textContent ?? 'Copy';
+				if (label) label.textContent = 'Copied';
+				setTimeout(() => {
+					btn.classList.remove('copied');
+					if (label) label.textContent = prev;
+				}, 1600);
+			} catch {
+				btn.classList.add('copied');
+			}
+		});
+	}
+</script>

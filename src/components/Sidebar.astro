@@ -1,0 +1,100 @@
+---
+const path = Astro.url.pathname.replace(/\/$/, '');
+
+const sections: { title: string; links: { label: string; href: string }[] }[] = [
+	{
+		title: 'Getting started',
+		links: [
+			{ label: 'Overview', href: '/docs' },
+			{ label: 'Intro', href: '/docs/intro' },
+			{ label: 'Quickstart', href: '/docs/quickstart' },
+			{ label: 'npm packages', href: '/docs/npm-packages' },
+			{ label: 'DB drivers', href: '/docs/db-drivers' },
+		],
+	},
+	{
+		title: 'Recipes',
+		links: [
+			{ label: 'All recipes', href: '/docs/recipes' },
+			{ label: 'Stress testing', href: '/docs/recipes/stress-testing' },
+			{ label: 'Mock server (OpenAPI)', href: '/docs/recipes/mock-server' },
+			{ label: 'API smoke tests', href: '/docs/recipes/api-smoke-tests' },
+			{ label: 'Log mining', href: '/docs/recipes/log-mining' },
+			{ label: 'Heap snapshots in tests', href: '/docs/recipes/heap-snapshots' },
+		],
+	},
+];
+
+const isActive = (href: string) => {
+	const clean = href.replace(/\/$/, '');
+	return path === clean;
+};
+---
+
+<aside class="sidebar" aria-label="Docs navigation">
+	<nav>
+		{
+			sections.map((section) => (
+				<div class="section">
+					<h4>{section.title}</h4>
+					<ul>
+						{section.links.map((l) => (
+							<li>
+								<a href={l.href} class:list={[{ active: isActive(l.href) }]}>
+									{l.label}
+								</a>
+							</li>
+						))}
+					</ul>
+				</div>
+			))
+		}
+	</nav>
+</aside>
+
+<style>
+	.sidebar {
+		font-size: 0.95rem;
+	}
+	.sidebar nav {
+		display: flex;
+		flex-direction: column;
+		gap: 1.75rem;
+	}
+	.section h4 {
+		font-size: 0.75rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--fg-muted);
+		font-weight: 600;
+		margin: 0 0 0.6rem;
+	}
+	ul {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+	li {
+		margin: 0;
+	}
+	a {
+		display: block;
+		padding: 0.4rem 0.6rem;
+		border-radius: 6px;
+		color: var(--fg-muted);
+		border-left: 2px solid transparent;
+	}
+	a:hover {
+		color: var(--fg);
+		background: var(--bg-soft);
+	}
+	a.active {
+		color: var(--accent);
+		background: var(--bg-soft);
+		border-left-color: var(--accent);
+		font-weight: 500;
+	}
+</style>

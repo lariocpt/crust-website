@@ -1,0 +1,163 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Intro
+description: Crust is an inline JavaScript script runner in Bun, shell-flavoured. Bash and TypeScript are equal citizens on the same pipeline.
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+import CodeSwitcher from '../../components/CodeSwitcher.astro';
+
+## What crust is
+
+Crust is effectively an **inline JavaScript global-scope script runner in Bun, shell-flavoured**. Every line you type runs in a Bun context where `Pipeline`, `range`, `GET`/`POST`, `parallel`, `$` (`Bun.$`), and anything you registered in `~/.config/crust/init.ts` are globals.
+
+Shell commands and TypeScript lambdas are equal citizens. Both are stages on the same pipeline. You don't pick one or the other — you mix them as needed.
+
+The same pipeline can be expressed either at the **shell line** or as a **`.ts` script run with `bun`** — every feature in crust has a TypeScript-API equivalent. Use whichever surface fits the moment:
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # 1. Load-test a health endpoint
+  range(0, 10000) | parallel 100 | GET :3000/health | expect 200 | stats
+
+  # 2. Smoke-test against fixtures on disk
+  fixtures/*.json | POST :3000/users | (r => r.status === 201)
+
+  # 3. Pure POSIX shell still works
+  **/*.log | grep ERROR | wc -l
+
+  # 4. SQL rows as a streaming source
+  sql "select email from users limit 5" | (r => r.email)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // The same pipelines as a .ts script — bun script.ts
+  // (or pasted into `bun repl`; crust's globals are auto-loaded
+  //  when the script imports from "crust").
+
+  // 1.
+  await range(0, 10000)
+    .pipe(parallel(100, () => fetch("http://localhost:3000/health")))
+    .pipe(expectStage(200))
+    .to(stats());
+
+  // 2.
+  await glob("fixtures/*.json")
+    .pipe(async (p) => Bun.file(p).text())
+    .pipe(POST("http://localhost:3000/users"))
+    .pipe((r) => r.status === 201)
+    .collect();
+
+  // 3.
+  const errors = await glob("**/*.log")
+    .pipe(async (p) => Bun.file(p).text())
+    .pipe((t: string) => t.split("\n"))
+    .filter((l: string) => l.includes("ERROR"))
+    .collect();
+  console.log(errors.length);
+
+  // 4.
+  await Pipeline.of([])
+    .pipe(() => Bun.sql`select email from users limit 5`)
+    .pipe((r) => r.email)
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+That first pipeline is a `range` source, then a `parallel` operator, then `GET` (HTTP verb), then `expect` and `stats` (sinks) — none of which are real binaries on your PATH, but all of which compose under `|` as if they were. The third line is pure POSIX shell. The fourth mixes a SQL row source with a TS lambda. **Each form has the same observable behavior** — pick the surface that fits where you're working.
+
+## The mental model
+
+Three roles, one stream type — `Pipeline<T>`:
+
+| Role | What it does | Examples |
+|---|---|---|
+| **Source** | Produces a stream | `ls`, `range(0,9)`, `**/*.ts`, `GET <url>` |
+| **Transform** | Stream-in, stream-out | shell command, `(x => …)` lambda, `POST <url>` |
+| **Sink** | Stream-in, value-out | stdout (default), `write(path)`, `stats()` |
+
+The shell parser classifies each `|`-separated stage by looking at its first token:
+
+| Trigger | Stage kind |
+|---|---|
+| Contains `*` / `?` / `[…]` | Glob source |
+| Matches `range(a, b)` | Range source |
+| Starts with `(` and contains `=>` | TypeScript lambda |
+| Starts with `GET` / `POST` / `PUT` / `PATCH` / `DELETE` | HTTP stage |
+| First token is a builtin name | Builtin (in-process dispatch) |
+| First token is a `crust.fn`-registered function | Registered function (per-item transform) |
+| Anything else | Shell stage — handed to `sh -c "<text>"` |
+
+Single-stage pure-shell lines (`ls -la`, `git status`) short-circuit: crust execs `sh -c` with **inherited stdio** so colors, paging, and TUIs work normally. Mixed pipelines stream items through TS land.
+
+## Why bash *and* TypeScript
+
+Both languages are tools. Bash wins for **launching processes and piping bytes**. TypeScript wins for **shaping data, awaiting promises, and asserting structure**. Crust stops forcing you to pick:
+
+- Use `grep` when you want `grep`. Don't reinvent it.
+- Use a lambda when you need to parse JSON, await a `fetch`, or apply a predicate that's awkward in awk.
+- Use HTTP verbs as first-class stages — no need to script `curl` invocations or shell out for assertions.
+
+## Install
+
+<InstallBlock />
+
+Then launch:
+
+```bash
+~/.crust/bin/crust
+```
+
+Or set it as your terminal's shell. To make it your login shell:
+
+```bash
+chsh -s ~/.crust/bin/crust
+```
+
+You don't have to make it your daily driver. Crust works equally well three ways:
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # 1. Interactive REPL — the daily-driver path
+  ~/.crust/bin/crust
+
+  # 2. One-liner caller from bash/zsh/fish — for the lines where
+  #    pipeline syntax wins. -c loads your init.ts and exits with
+  #    the line's status. Multi-line strings split on \n.
+  crust -c 'range(0,99) | parallel 20 | GET :3000/health | expect 200 | stats'
+  crust -c 'ls *.json | (s => JSON.parse(await Bun.file(s).text())) | (j => j.id)'
+
+  # 3. crust globals available to any .ts file you run with bun
+  bun script.ts
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // script.ts — runs under plain `bun script.ts`.
+  // The Pipeline / range / parallel / GET / POST / expectStage / stats
+  // / $ globals come from `crust` — explicit import keeps tooling happy.
+  import { Pipeline, range, parallel, GET, expectStage } from "crust";
+  import { stats } from "crust/sinks";
+
+  await range(0, 99)
+    .pipe(parallel(20, () => fetch("http://localhost:3000/health")))
+    .pipe(expectStage(200))
+    .to(stats());
+
+  // Or with no imports inside the crust REPL — every name above
+  // is already on globalThis.
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+The TypeScript surface is identical between the REPL and a script — the difference is just *where* you're typing. There is no feature that exists in the shell line but not in TS, or vice versa.
+
+## Next
+
+- **[Quickstart](/docs/quickstart)** — every command crust ships, shell-line + TS-API side by side.
+- **[npm packages](/docs/npm-packages)** — globally-installed packages become pipeline stages automatically.
+- **[DB drivers](/docs/db-drivers)** — pointing `sql` at Postgres, MySQL, SQLite.

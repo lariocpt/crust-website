@@ -1,0 +1,316 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: npm packages
+description: Use any globally-installed npm package as a first-class pipeline stage, with no init.ts edits. Plus crust.fn for the harder cases.
+---
+
+import CodeSwitcher from '../../components/CodeSwitcher.astro';
+
+Two ways to add new pipeline stages from the npm ecosystem:
+
+1. **Auto-dispatch from `bun add -g`** — any global package whose default export is a function becomes a stage automatically.
+2. **`crust.fn(name, handler)` in `init.ts`** — for packages whose shape doesn't fit the calling convention (method-dispatched libs like chalk, anything that needs setup) and for ad-hoc helpers you wrote yourself.
+
+Everything documented here works the same way in the **REPL**, in **one-liner mode** (`crust -c '…'`), and in a **`.ts` file you run with `bun`**. Every shell-line example below is paired with its TypeScript-API equivalent for when you'd rather work in a `.ts` script.
+
+## Auto-dispatch from globals
+
+```bash
+bun add -g slugify
+crust -c 'echo "Hello World" | slugify'      # → hello-world
+```
+
+That's the whole loop. Install a package globally, restart your shell line, and the package name is now a pipeline stage. No `init.ts` edit needed.
+
+### How it actually resolves
+
+Crust scans `~/.bun/install/global` once per session (cached at `~/.cache/crust/globals.json`, invalidated by the mtime of the global `package.json`). For each dependency it inspects the package and decides:
+
+| Package shape | What crust does |
+|---|---|
+| Has a `bin` field | **Skipped** — keeps behaving as a shell binary so `prettier foo.ts` still runs the CLI. |
+| Has `bin` AND `"crust": {}` in `package.json` | Opts back into stage dispatch despite the `bin`. |
+| Default export is a function | Exposed at `name` (scope stripped: `@example/cool-pkg` → `cool-pkg`). |
+| Has `"crust": { "stage": "exportName" }` | Uses that named export instead of `default`. |
+| No callable export | Skipped with a clear error if you call it: *"wrap it explicitly with crust.fn() in init.ts"*. |
+
+Inside the pipeline the package is invoked as `fn(item, ...staticArgs)`:
+
+- **Transform position** (`... | pkg arg1 arg2`): `pkg(currentItem, "arg1", "arg2")`.
+- **Source position** (`pkg arg1 | ...`): `pkg(undefined, "arg1")` — the first arg is `undefined`.
+
+Packages are **lazily imported** — the first time you actually use one in a pipeline, that's when crust does the dynamic `import(...)`. Browsing your globals has no startup cost.
+
+### Tour: slugify, dedent, chalk
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # bun add -g slugify
+  echo "Hello World" | slugify                         # → hello-world
+
+  # bun add -g dedent
+  echo $'    line one\n    line two' | dedent
+
+  # Compose: stream filenames, slugify each, write back
+  ls *.md | (f => f.replace('.md','')) | slugify | (s => `${s}.md`)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // bun run script.ts — direct ESM import, no crust runtime needed
+  import slugify from "slugify";
+
+  await Pipeline.of(["Hello World"])
+    .pipe((s) => slugify(s))         // → "Hello-World"
+    .collect();
+
+  // With dedent
+  import dedent from "dedent";
+  console.log(dedent`
+    line one
+    line two
+  `);
+
+  // Same compose-with-glob pattern in TS
+  await glob("*.md")
+    .pipe((f) => f.replace(".md", ""))
+    .pipe((s) => slugify(s))
+    .pipe((s) => `${s}.md`)
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### When auto-dispatch isn't enough
+
+Some packages don't have a single default function. **chalk** is the canonical example — it's a chainable object (`chalk.red("…")`), not a callable. Auto-dispatch will throw with *"package has no callable export"*. Wrap it with `crust.fn` in `init.ts`:
+
+```ts
+// ~/.config/crust/init.ts
+import chalk from "chalk";
+crust.fn("red", (text: string) => chalk.red(text));
+crust.fn("green", (text: string) => chalk.green(text));
+crust.fn("bold", (text: string) => chalk.bold(text));
+```
+
+Now you have first-class `red` / `green` / `bold` stages:
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  echo "ok" | green
+  echo "warning" | bold | red
+  **/*.log | grep ERROR | red
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // From a .ts file, just import and use directly
+  import chalk from "chalk";
+
+  await Pipeline.of(["ok"])
+    .pipe((t) => chalk.green(t))
+    .collect();
+
+  await read("application.log")
+    .filter((l) => l.includes("ERROR"))
+    .pipe((l) => chalk.red(l))
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### Choosing a named export
+
+When the package's default export isn't the function you want — or there isn't one — add a `crust` field to the package's `package.json` (works for packages you maintain yourself):
+
+```json
+{
+  "name": "my-helpers",
+  "main": "index.js",
+  "crust": { "stage": "slugify" }
+}
+```
+
+Now `my-helpers | …` resolves to that package's `slugify` named export instead of `default`.
+
+For packages you *don't* maintain, prefer wrapping in `init.ts`:
+
+```ts
+import { slugify } from "some-other-lib";
+crust.fn("slug", slugify);
+```
+
+## `crust.fn` — the full surface
+
+The signature is `(item, ...staticArgs)`:
+
+- `item` is whatever the upstream stage yielded.
+- `staticArgs` are the tokens that came after the function name in the shell line.
+
+```ts
+// in ~/.config/crust/init.ts
+crust.fn("wrap", (item: unknown, l: string, r: string) => `${l}${item}${r}`);
+```
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  echo hi | wrap [ ]                  # → [hi]
+  range(0, 3) | wrap "<" ">"          # → <0> <1> <2> <3>
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Same logic inline, no crust.fn needed when you're already in TS
+  await Pipeline.of(["hi"])
+    .pipe((item) => `[${item}]`)
+    .collect();
+
+  // The function call signature is plain JS — you can also
+  // import + reuse the same handler across scripts
+  function wrap(item: unknown, l: string, r: string) {
+    return `${l}${item}${r}`;
+  }
+  await range(0, 3)
+    .pipe((n) => wrap(n, "<", ">"))
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### Source-position vs transform-position
+
+A `crust.fn` works in both positions. As a **source** (first stage), the first arg is `undefined`. If your function returns an array, crust flattens it into per-item items downstream — the same behavior that makes `sql "..."` row-streaming.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # crust.fn("listUsers", async () => (await db.users()).map(u => u.email))
+  listUsers | (e => e.toLowerCase())
+  # Each email is one downstream item, not a single array.
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Equivalent pattern using Pipeline.of + an async iterable
+  async function* listUsers() {
+    for (const u of await db.users()) yield u.email;
+  }
+
+  await Pipeline.of(listUsers())
+    .pipe((e: string) => e.toLowerCase())
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### Async, errors, and the lifetime model
+
+- **Async handlers are fine.** `crust.fn("foo", async (item) => …)` awaits naturally inside the pipeline.
+- **Throwing fails the pipeline** at the offending item, with the index preserved. Downstream sinks (`stats`, `collect`) reject; non-terminal stages propagate.
+- **Handlers persist for the session.** Re-registering the same name in `init.ts` later replaces the prior binding. Globally auto-dispatched names that clash with a `crust.fn` registration lose to the explicit registration.
+
+## Override precedence
+
+When multiple sources define the same name, this is the order — most-specific wins:
+
+1. **Builtins** (`cd`, `export`, `alias`, `sql`, `time`, `test-fixture`, `mock-server`, …).
+2. **`crust.fn(name, …)`** in `init.ts`.
+3. **Auto-dispatched globals** from `~/.bun/install/global`.
+4. **Shell binaries on `$PATH`**.
+
+So `crust.fn("slug", …)` always wins over a globally-installed `slug` package; the global always wins over a shell binary named `slug` on `$PATH`.
+
+## Cache + debug
+
+| Concern | How |
+|---|---|
+| **Cache location** | `~/.cache/crust/globals.json`. Override with `$CRUST_CACHE_DIR`. |
+| **Invalidation** | Stat-driven — when `~/.bun/install/global/package.json`'s mtime changes, the cache rebuilds on next session. Manual `bun add -g pkg` triggers this automatically. |
+| **Force rebuild** | `rm ~/.cache/crust/globals.json` and start a new session. |
+| **Inspect what crust found** | Run with `CRUST_DEBUG=1 crust -c '…'` — discovery logs go to stderr. |
+| **Global prefix override** | `$CRUST_GLOBAL_PREFIX` (defaults to `~/.bun/install/global`). Useful for testing alternate Bun install layouts. |
+
+## Common patterns
+
+### A small init.ts to start with
+
+```ts
+// ~/.config/crust/init.ts
+import chalk from "chalk";
+import slugify from "slugify";
+import { format as prettierFormat } from "prettier";
+
+// Color helpers
+crust.fn("red", (t: string) => chalk.red(t));
+crust.fn("green", (t: string) => chalk.green(t));
+crust.fn("bold", (t: string) => chalk.bold(t));
+
+// Text utils
+crust.fn("slug", (t: string) => slugify(t));
+crust.fn("upper", (t: string) => t.toUpperCase());
+crust.fn("trim", (t: string) => t.trim());
+
+// Async wrapper — formatter with options
+crust.fn("fmt", async (code: string, parser = "typescript") =>
+  prettierFormat(code, { parser }),
+);
+
+// Custom pipeline source
+crust.fn("envkeys", () => Object.keys(process.env).sort());
+```
+
+Now your prompt has a small toolbox:
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  echo "Build Failed" | red | bold
+  echo "My Cool Title" | slug                   # → my-cool-title
+  echo $'const  x =   1' | fmt                  # → const x = 1;
+  envkeys | grep AWS_
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // The same toolbox in a script — direct imports, no shim
+  import chalk from "chalk";
+  import slugify from "slugify";
+  import { format } from "prettier";
+
+  console.log(chalk.bold(chalk.red("Build Failed")));
+  console.log(slugify("My Cool Title"));
+  console.log(await format("const  x =   1", { parser: "typescript" }));
+
+  const awsKeys = Object.keys(process.env)
+    .sort()
+    .filter((k) => k.startsWith("AWS_"));
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### Per-project init via a hook
+
+If you keep per-project shell tooling, register stages in `crust.onBeforeStart` so they're loaded once at session start and tied to the directory you launched from:
+
+```ts
+// ~/.config/crust/init.ts
+crust.onBeforeStart = async () => {
+  const projectInit = `${process.cwd()}/.crust/init.ts`;
+  try {
+    await import(projectInit);
+  } catch {
+    // no per-project init — fine
+  }
+};
+```
+
+Each repo can then ship its own `.crust/init.ts` with project-specific `crust.fn` calls.
+
+## Related
+
+- [Quickstart — Builtins](/docs/quickstart#builtins) — the in-process builtins (`cd`, `export`, `alias`, etc.) that always beat your `crust.fn` names.
+- [Intro](/docs/intro) — the equal-citizen mental model for bash, TS lambdas, and `crust.fn`-registered stages.
+- [DB drivers](/docs/db-drivers) — `crust.fn` used to register SQLite / DuckDB / ClickHouse stages.

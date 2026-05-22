@@ -1,0 +1,239 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: API smoke tests
+description: Globs → POST → expect — single-line API smoke tests in crust.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** point a folder of JSON fixtures at an HTTP service and confirm every one comes back `2xx`. Pure pipeline — no test runner, no framework.
+
+## The one-liner
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Shell-line: glob → POST per item → predicate.
+  # In v0.1.5 the predicate becomes `expect 201` as a shell-line keyword.
+  fixtures/*.json | POST :3000/users | (r => r.status === 201)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  await glob("fixtures/*.json")
+    .pipe(async path => Bun.file(path).text())
+    .pipe(POST("http://localhost:3000/users"))
+    .pipe(expectStage(201))
+    .collect();
+
+  // On mismatch, expectStage rejects with ExpectError { item, index, matcher }.
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+The glob `fixtures/*.json` is a pipeline of file paths. `POST :3000/users` is a per-item transform — for each path, crust reads the file, POSTs the body, and emits the `Response`. The final lambda (or `expectStage` in TS) is the assertion.
+
+## A typical fixture folder
+
+```text
+fixtures/
+├── users/
+│   ├── happy-path.json
+│   ├── min-fields.json
+│   └── extreme-name.json
+└── auth/
+    ├── refresh.json
+    └── revoke.json
+```
+
+Each `.json` is the body for one request. Use as many as you like — every file becomes one item in the pipeline.
+
+## When you need more — `.crust.ts` fixtures
+
+For anything with auth headers, generated tokens, or schema-shape assertions, switch to a `.crust.ts` fixture file. Each file default-exports an object with `input` and `output`. Fields can be values *or* zero-argument thunks (resolved + awaited at run time). In `output`, a function with at least one parameter is a predicate matcher over the actual value.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  test-fixture --target 'fixtures/**/*.crust.ts'
+  test-fixture --target fixtures/users.crust.ts --out report.md
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // fixtures/users.crust.ts
+  export default {
+    name: "GET /users/42 returns Lario",
+    input: {
+      method: "GET",
+      url: "http://localhost:3000/users/42",
+      headers: async () => ({
+        Authorization: `Bearer ${await Bun.jwt.sign({ sub: "42" }, "k")}`,
+      }),
+    },
+    output: {
+      status: 200,
+      data: { id: 42, name: "Lario" },
+      headers: {
+        "content-type": (v: string) => v.startsWith("application/json"),
+      },
+    },
+  };
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Matchers
+
+In the `output` object you can mix exact values and predicates freely:
+
+```ts
+output: {
+  status: 200,                                     // exact
+  status: (s: number) => s < 300,                  // predicate
+  data: { id: 42 },                                // exact (deep)
+  data: (d: any) => d.id === 42 && d.email,        // predicate
+  headers: {
+    "x-request-id": (v: string) => /[a-f0-9-]{36}/.test(v),
+  },
+}
+```
+
+Predicates can also be `async` — useful for cross-checking against a database or another service.
+
+## Status matchers via `expectStage`
+
+When you're writing the pipeline in TypeScript directly, prefer `expectStage`:
+
+```ts
+expectStage(200);                        // exact status
+expectStage("2xx");                      // class — "2xx" | "3xx" | "4xx" | "5xx"
+expectStage((res) => res.status < 300);  // custom predicate
+```
+
+> The TS-test ecosystem owns the name `expect`. Crust exports it as `expectStage` to avoid collisions when you `import { expect as expectStage }` in test files. From the shell line in v0.1.5 it'll just be `expect 201`.
+
+## Cross-check the database after a request
+
+Status codes are necessary but not sufficient. The endpoint can return `201` and still write the wrong row — or no row at all. Crust ships a `sql` builtin backed by Bun's SQL client (via `$DATABASE_URL`), so you can pipe a POST response straight into a `SELECT` and assert on the result with a normal predicate lambda.
+
+The shape: `POST → JSON → id → query → row → predicate`. Each `|` is one transform.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Set DATABASE_URL once per session
+  export DATABASE_URL=postgres://app:app@localhost:5432/app
+
+  # Create the user, then verify the row landed with the right values.
+  # `Bun.sql\`...\`` template tags safely parameterize ${id}.
+  echo '{"name":"Lario","email":"lario@example.com"}' \
+    | POST :3000/users \
+    | (r => r.json()) \
+    | (u => u.id) \
+    | (id => (await Bun.sql`select name, email from users where id = ${id}`)[0]) \
+    | (row => row?.email === 'lario@example.com' && row?.name === 'Lario')
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // The TS-API form composes the same stages with .pipe()
+  await Pipeline.of([{ name: "Lario", email: "lario@example.com" }])
+    .pipe(POST("http://localhost:3000/users"))
+    .pipe(expectStage(201))
+    .pipe(async (r) => (await r.json()) as { id: number })
+    .pipe(async (u) => {
+      const [row] = await Bun.sql`
+        select name, email from users where id = ${u.id}
+      `;
+      return row as { name: string; email: string } | undefined;
+    })
+    .pipe((row) => {
+      if (row?.email !== "lario@example.com") {
+        throw new Error(`DB mismatch: ${JSON.stringify(row)}`);
+      }
+      return row;
+    })
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### Using the `sql` builtin directly
+
+When the query is constant — no upstream interpolation needed — call `sql` as a stage. It uses Bun's `$DATABASE_URL` client and **streams one row per item** as a source. As a transform, the static args become `(query, ...params)`; the upstream item is *not* auto-bound, so reach for a lambda when you need to inject a value from the stream.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Source — every recent user becomes one item downstream
+  sql "select id, email from users order by id desc limit 5" | (r => r.email)
+
+  # Transform with static params — last item passes through, params are constant
+  range(0, 0)
+    | sql "select count(*) as n from users where email like $1" "%@example.com"
+    | (rows => rows[0].n)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Source equivalent
+  const emails = await Pipeline.of([])
+    .pipe(() => Bun.sql`select id, email from users order by id desc limit 5`)
+    .collect();
+
+  // Or use Bun.sql directly when you're already in TS:
+  const rows: Array<{ id: number; email: string }> = await Bun.sql`
+    select id, email from users order by id desc limit 5
+  `;
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### A `.crust.ts` fixture that does the same cross-check
+
+If you'd rather keep the assertion declarative, do the DB check inside the fixture's `output` predicate. Predicate functions can be `async`, so `Bun.sql` works natively.
+
+```ts
+// fixtures/create-user.crust.ts
+export default {
+  name: "POST /users persists the row",
+  input: {
+    method: "POST",
+    url: "http://localhost:3000/users",
+    body: { name: "Lario", email: "lario@example.com" },
+  },
+  output: {
+    status: 201,
+    data: async (d: { id: number }) => {
+      const [row] = await Bun.sql`
+        select name, email from users where id = ${d.id}
+      `;
+      return (
+        row?.name === "Lario" && row?.email === "lario@example.com"
+      );
+    },
+  },
+};
+```
+
+> Want to point at a different engine — Postgres vs. MySQL vs. SQLite vs. a read replica? See [DB drivers](/docs/db-drivers).
+
+## Reports & exit codes
+
+```bash
+test-fixture --target 'fixtures/**/*.crust.ts' --threads 8 --out report.json
+```
+
+Report format is picked from `--out`'s extension: `.json`, `.md`, anything else is plain text. With no `--out`, you get a colored folder-grouped summary on stdout.
+
+Exit codes:
+
+- `0` — all pass
+- `1` — any failure / error
+- `2` — no files matched, or bad args
+
+## Related
+
+- [Stress testing](/docs/recipes/stress-testing) — same fixtures, `--count N` for percentile reports.
+- [Mock server](/docs/recipes/mock-server) — point smoke tests at an OpenAPI mock when the real service isn't running.

@@ -1,0 +1,273 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: DB drivers
+description: Point crust's sql builtin at Postgres, MySQL, SQLite, or anything you can wire up via init.ts.
+---
+
+import CodeSwitcher from '../../components/CodeSwitcher.astro';
+
+The `sql` builtin reads `$DATABASE_URL` and instantiates a Bun SQL client at first call:
+
+```ts
+const SQL = (Bun as { SQL?: new (url: string) => unknown }).SQL;
+if (SQL) return new SQL(url);
+return Bun.sql; // fallback for builds that ship Bun.sql.unsafe instead
+```
+
+That makes **driver choice = URL scheme**. Set the right `$DATABASE_URL` once per session (or in `~/.config/crust/init.ts`), and every `sql "..."` stage uses it.
+
+For databases Bun.SQL doesn't speak natively — SQLite, ClickHouse, DuckDB — register a custom `crust.fn` in `init.ts`. You keep the same shell-line ergonomics; only the connector underneath changes.
+
+## At a glance
+
+| Engine | URL scheme | How crust connects | Notes |
+|---|---|---|---|
+| **Postgres** | `postgres://` / `postgresql://` | `new Bun.SQL(url)` | First-class. Recommended for most workflows. |
+| **MySQL / MariaDB** | `mysql://` | `new Bun.SQL(url)` | Requires a recent Bun build with MySQL support compiled in. |
+| **SQLite (file)** | n/a (use `bun:sqlite`) | `crust.fn("sql", ...)` shim in `init.ts` | Bun.SQL doesn't speak SQLite. Wire it up yourself in 10 lines. |
+| **Anything else** | any URL | `crust.fn("sql", ...)` in `init.ts` | DuckDB, ClickHouse, Snowflake — bring the npm client of your choice. |
+
+## Postgres (default)
+
+The path of least resistance. Bun ships a native Postgres client.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  export DATABASE_URL='postgres://app:app@localhost:5432/app'
+
+  # Quick health check
+  sql "select 1 as ok" | (r => r.ok === 1)
+
+  # Stream rows downstream
+  sql "select id, email from users limit 5" | (r => r.email)
+
+  # Parameterized
+  sql "select * from users where tier = $1" "pro" | (r => r.id)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  process.env.DATABASE_URL = "postgres://app:app@localhost:5432/app";
+
+  // Same query via Bun.sql template tag (auto-parameterized)
+  const rows: Array<{ id: number; email: string }> = await Bun.sql`
+    select id, email from users where tier = ${"pro"}
+  `;
+
+  // Or as a pipeline source
+  await Pipeline.of([])
+    .pipe(() => Bun.sql`select id, email from users limit 5`)
+    .pipe((r) => r.email)
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+### Connection pooling
+
+`Bun.SQL` pools connections by default — crust caches the client across `sql` calls within a session. To force a reconnect (after credentials rotate, or to swap databases mid-session), set `$DATABASE_URL` to a new value and restart the shell, or call the internal reset hook from `init.ts`:
+
+```ts
+import { _resetSqlClient } from "crust/builtinFns/sql";
+
+crust.fn("sql-reset", () => {
+  _resetSqlClient();
+  return "ok";
+});
+// Then in the shell:  sql-reset
+```
+
+### SSL / TLS
+
+Append `?sslmode=require` (or `?sslmode=verify-full`) to your `DATABASE_URL`. The Bun client honors Postgres SSL params:
+
+```bash
+export DATABASE_URL='postgres://app:secret@db.example.com:5432/app?sslmode=require'
+```
+
+For client certificates use `?sslrootcert=...&sslcert=...&sslkey=...` — paths are absolute or relative to `$PWD`.
+
+## MySQL / MariaDB
+
+Same builtin, different URL scheme. Requires a Bun build with MySQL support — check `bun --revision` and `bunx bun-info` if `sql "select 1"` errors out with "no Bun.SQL".
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  export DATABASE_URL='mysql://app:app@localhost:3306/app'
+
+  sql "select id, email from users limit 5" | (r => r.email)
+
+  # MySQL uses ? placeholders, not $1
+  sql "select * from users where tier = ?" "pro" | (r => r.id)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  process.env.DATABASE_URL = "mysql://app:app@localhost:3306/app";
+
+  // Template tag still works — it normalizes placeholders per driver
+  const rows = await Bun.sql`
+    select id, email from users where tier = ${"pro"}
+  `;
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+> **Placeholders differ by engine.** Postgres uses `$1`, `$2`, … and MySQL uses `?`. When you write SQL by hand with the `sql "..."` builtin, match the engine's style. The `Bun.sql` template tag handles this for you automatically.
+
+## SQLite (via `bun:sqlite`)
+
+Bun.SQL doesn't speak SQLite — but `bun:sqlite` does, and you can shim it under the same shell-line surface in `init.ts`. The shim below replaces the built-in `sql` for the rest of the session.
+
+```ts
+// ~/.config/crust/init.ts
+import { Database } from "bun:sqlite";
+
+const db = new Database(process.env.SQLITE_PATH ?? "./app.sqlite");
+
+crust.fn("sql", (...args: unknown[]) => {
+  // Source mode:    sql "select ..." [params]      → args[0] is the query string
+  // Transform mode: ... | sql "select ..." [params] → args[0] is the upstream item
+  const first = args[0];
+  const isSource = typeof first === "string";
+  const query = isSource ? first : String(args[1] ?? "");
+  const params = isSource ? args.slice(1) : args.slice(2);
+  if (!query) throw new Error("sql: missing query");
+  return db.query(query).all(...params);
+});
+```
+
+Then from the shell:
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  export SQLITE_PATH=./app.sqlite
+
+  sql "select count(*) as n from users" | (r => r.n)
+
+  # SQLite uses ? placeholders
+  sql "select * from users where tier = ?" "pro" | (r => r.id)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // From a .ts file, use bun:sqlite directly
+  import { Database } from "bun:sqlite";
+
+  const db = new Database("./app.sqlite");
+  const rows: Array<{ id: number; email: string }> = db
+    .query("select id, email from users where tier = ?")
+    .all("pro");
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+The shim above keeps `sql` row-streaming behavior consistent — function-as-source flattens arrays into per-row items downstream, so `sql "select ..." | (r => r.email)` works the same as on Postgres.
+
+## Multiple databases in one session
+
+You'll often want a primary plus a read replica, or prod-read plus a local sandbox. Register named functions in `init.ts`; they all coexist.
+
+```ts
+// ~/.config/crust/init.ts
+const primary = new Bun.SQL(process.env.PRIMARY_URL!);
+const replica = new Bun.SQL(process.env.REPLICA_URL!);
+
+const make = (client: Bun.SQL) => async (...args: unknown[]) => {
+  const first = args[0];
+  const isSource = typeof first === "string";
+  const query = isSource ? first : String(args[1] ?? "");
+  const params = isSource ? args.slice(1) : args.slice(2);
+  return await client.unsafe(query, params);
+};
+
+crust.fn("psql", make(primary));
+crust.fn("rsql", make(replica));
+```
+
+Now the prompt has two namespaced stages:
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Write to the primary
+  psql "insert into events (kind, payload) values ($1, $2)" "click" '{"x":1}'
+
+  # Read from the replica
+  rsql "select id, kind from events order by id desc limit 10" | (e => e.id)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Same two clients used directly from a .ts script
+  import "crust"; // loads init.ts which created the two SQL clients
+  // (or, if you'd rather keep state out of init.ts, just construct
+  //  them at the top of your script):
+  const primary = new Bun.SQL(process.env.PRIMARY_URL!);
+  const replica = new Bun.SQL(process.env.REPLICA_URL!);
+
+  // Write to the primary (template tag auto-parameterizes)
+  await primary`insert into events (kind, payload) values (${"click"}, ${{ x: 1 }})`;
+
+  // Read from the replica as a streaming source
+  await Pipeline.of([])
+    .pipe(() => replica`select id, kind from events order by id desc limit 10`)
+    .pipe((e) => e.id)
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Other engines via npm clients
+
+Anything with an npm-shipped client fits the same `crust.fn` mold. Register the wrapper in `init.ts`; use the same client directly from a `.ts` script.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # After init.ts has registered dql / chql:
+  dql "select count(*) c from read_parquet('events/*.parquet')" | (r => r.c)
+  chql "select user_id, count() c from clicks group by user_id" | (r => r.user_id)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // ~/.config/crust/init.ts — DuckDB
+  import { Database } from "duckdb-async";
+  const duck = await Database.create(":memory:");
+  crust.fn("dql", async (q: string) => (await duck.all(q)) as unknown[]);
+
+  // ClickHouse
+  import { createClient } from "@clickhouse/client";
+  const ch = createClient({ url: process.env.CLICKHOUSE_URL! });
+  crust.fn("chql", async (q: string) => {
+    const result = await ch.query({ query: q, format: "JSONEachRow" });
+    return (await result.json()) as unknown[];
+  });
+
+  // Same clients used directly from any .ts script — no shim needed
+  const rows = await duck.all(
+    "select count(*) c from read_parquet('events/*.parquet')"
+  );
+  console.log((rows as Array<{ c: number }>)[0].c);
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## Troubleshooting
+
+| Error | Likely cause |
+|---|---|
+| `sql: no connection (set $DATABASE_URL)` | `$DATABASE_URL` is empty. Set it inline, in your shell rc, or in `init.ts` via `process.env.DATABASE_URL = ...`. |
+| `sql: this Bun build has no Bun.SQL or Bun.sql.unsafe support` | Your Bun is too old (or compiled without the relevant driver). Upgrade with `bun upgrade` and retry. |
+| `sql: client missing .unsafe — parameterised query unsupported` | A custom `crust.fn("sql", …)` shim is in place that doesn't implement parameterized queries. Add `params` support or fall back to template-tag form. |
+| Hangs on first query | Network reachability or pg_hba / firewall. Try `pg_isready -d "$DATABASE_URL"` (Postgres) before retrying. |
+
+## Related
+
+- [API smoke tests — cross-check the database](/docs/recipes/api-smoke-tests#cross-check-the-database-after-a-request) — pipe a POST response into a `SELECT`.
+- [Stress testing](/docs/recipes/stress-testing) — pair with `sql` reads inside fixture predicates for end-to-end load checks.
+- [Quickstart — built-in functions](/docs/quickstart#built-in-functions) — the `sql` builtin in the broader builtin set.
