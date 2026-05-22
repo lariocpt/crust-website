@@ -43,7 +43,7 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
 
 ## Sources
 
-A source is anything that produces a `Pipeline<T>`. Globs, ranges, shell commands, and HTTP verbs all work as sources.
+A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, shell commands, and HTTP verbs all work as sources.
 
 <CodeSwitcher>
   <Fragment slot="bash">
@@ -52,6 +52,8 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, shell command
   range(0, 9)                       # 0..9 inclusive — Pipeline<number>
   **/*.ts                           # glob — Pipeline<string> of paths
   src/*.{ts,tsx}                    # globs support **/*, ?, [abc]
+  tail app.log                      # last 10 lines, then done
+  tail -F app.log                   # follow mode: stream new lines forever
   GET https://api.example.com/v1    # Pipeline<Response>
   GET :3000/health                  # localhost shorthand
   ```
@@ -64,6 +66,8 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, shell command
   range(0, 9);                       // Pipeline<number>
   glob("**/*.ts");                   // Pipeline<string>
   glob("src/*.{ts,tsx}");
+  tail("app.log", { lines: 10 });    // Pipeline<string> of lines
+  tail("app.log", { follow: true }); // ...streaming forever
   GET("https://api.example.com/v1"); // Pipeline<Response>
   GET("http://localhost:3000/health");
   ```
@@ -311,6 +315,36 @@ Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
 </CodeSwitcher>
 
 See the [Mock server recipe](/docs/recipes/mock-server) for response-selection rules, cluster mode, and per-request log format.
+
+### verify-web-links
+
+Crawls a site from its sitemap, verifies every link is reachable, and optionally diffs Open Graph / meta tags against `.crust.ts` fixtures. Uses Bun's `HTMLRewriter` for link and social-meta extraction.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  verify-web-links --site-map-url https://example.com/sitemap.xml
+  verify-web-links --base-url https://example.com                 # auto-discover via robots.txt
+  verify-web-links --base-url https://example.com --fixtures site/*.meta.crust.ts
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // site/about.meta.crust.ts
+  export default {
+    url: "https://example.com/about",
+    meta: {
+      title: "About Us",
+      "og:title": "About Us",
+      "og:image": (u: string) => /\.(png|jpg)$/.test(u),
+      description: (d: string) => d.length > 50 && d.length < 160,
+    },
+  };
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+See the [Verify web links recipe](/docs/recipes/verify-web-links) for the full flag list and fixture format.
 
 ## Pipeline methods (TS)
 

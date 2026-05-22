@@ -1,0 +1,139 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Verify web links + SEO
+description: Crawl a site from its sitemap, catch broken links, validate anchors, and diff OG / meta tags against fixtures.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** keep a site honest. Crawl every page in the sitemap, follow internal links, catch broken URLs / dead anchors / stale redirects, and diff Open Graph and meta tags against fixtures. The site-health counterpart to `test-fixture` — same `.crust.ts` shape, same predicate-aware diff. Built on Bun's native `HTMLRewriter`, no extra dependencies.
+
+## Run it
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Direct sitemap URL
+  verify-web-links --site-map-url https://example.com/sitemap.xml
+
+  # Auto-discover: probes /robots.txt for `Sitemap:` lines, falls back to /sitemap.xml
+  verify-web-links --base-url https://example.com
+
+  # Full SEO sweep: crawl + diff OG / meta against fixtures
+  verify-web-links --base-url https://example.com --fixtures site/*.meta.crust.ts
+
+  # Local sitemap (e.g. from `astro build` output)
+  verify-web-links --site-map-url ./dist/sitemap-0.xml --base-url https://example.com
+
+  # Sitemap-only, no recursion into internal links
+  verify-web-links --site-map-url ./public/sitemap.xml --no-recurse
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Programmatic — exit code drives CI
+  import { runCli } from "crust/verifyWebLinks";
+
+  const code = await runCli([
+    "--base-url", "https://example.com",
+    "--fixtures", "site/*.meta.crust.ts",
+    "--json",
+  ]);
+  process.exit(code);
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## What gets checked
+
+All four behaviors are on by default. Each has a `--no-*` opt-out.
+
+| Check | What it does | Disable with |
+|---|---|---|
+| HTTP status | Every URL must return `2xx` (or `3xx` if redirects are allowed). | — (always on) |
+| Recurse into internal pages | Walks `<a href>` / `<img src>` / `<link href>` / `<script src>` / `<iframe src>` on same-origin pages up to `--max-depth` (default `5`). | `--no-recurse` |
+| Anchor fragments | For every `path#id` link, the destination page must contain an element with `id="id"`. Validated against ids harvested during crawl — no second fetch. | `--no-anchors` |
+| Redirect chains | `301`/`302` are followed, but the chain is reported as a failure — a strong signal of stale internal links. | `--no-redirect-warnings` |
+
+External (off-origin) links are skipped by default. Pass `--include-external` to status-check them (never recursed).
+
+OG images get an extra check: every `<meta property="og:image" content="...">` URL is fetched and the response content-type must start with `image/`.
+
+## Flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--site-map-url <url-or-path>` | — | URL or local file. Mutually exclusive with `--base-url`. |
+| `--base-url <url>` | — | Auto-discovers the sitemap from `/robots.txt` then `/sitemap.xml`. |
+| `--fixtures <glob>` | — | `.crust.ts` files exporting `{ url, meta }` (or array). |
+| `--concurrency N` | `4` | Parallel fetches. |
+| `--timeout ms` | `10000` | Per-request timeout. |
+| `--user-agent <s>` | `crust-verify-web-links/0.1` | Header sent on every request. |
+| `--max-depth N` | `5` | Recursion cap when `--no-recurse` isn't set. |
+| `--no-recurse` | off | Only check URLs listed in the sitemap. |
+| `--no-anchors` | off | Skip `#fragment` validation. |
+| `--no-redirect-warnings` | off | Treat `3xx` chains as informational. |
+| `--include-external` | off | Also status-check external links. |
+| `--json` | off | Emit a machine-readable report on stdout. |
+
+## Meta fixtures
+
+Meta fixtures use the same `.crust.ts` default-export shape as `test-fixture`. Values can be literals (exact-equality) or single-arg functions (predicates) for anything you want to assert loosely:
+
+```ts
+// site/about.meta.crust.ts
+export default {
+  url: "https://example.com/about",
+  meta: {
+    title: "About Us — Example",
+    description: (d: string) => d.length > 50 && d.length < 160,
+    "og:title": "About Us",
+    "og:type": "website",
+    "og:image": (u: string) => u.startsWith("https://") && /\.(png|jpg|jpeg)$/.test(u),
+    "twitter:card": "summary_large_image",
+  },
+};
+```
+
+Or export an array to cover several URLs from one file:
+
+```ts
+const base = "https://example.com";
+export default [
+  { url: `${base}/`,       meta: { title: "Example", "og:type": "website" } },
+  { url: `${base}/about`,  meta: { title: "About Us — Example", "og:type": "website" } },
+  { url: `${base}/blog`,   meta: { title: (t: string) => t.endsWith(" — Example") } },
+];
+```
+
+Keys are the literal property/name attribute — `title`, `description`, `og:title`, `og:image`, `twitter:card`, `article:published_time`, etc.
+
+## Pairing with CI
+
+`verify-web-links` exits non-zero on any failure, so it drops straight into a pipeline:
+
+```bash
+# After a build, run against the deployed preview URL
+verify-web-links --base-url "$PREVIEW_URL" --fixtures site/**/*.meta.crust.ts
+```
+
+Or chain with other crust builtins for a full pre-deploy gate:
+
+```bash
+mock-server --swagger ./openapi.yaml --port 4000 &
+test-fixture --target fixtures/*.crust.ts
+verify-web-links --base-url http://localhost:3000 --fixtures site/*.meta.crust.ts
+```
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | All checks pass. |
+| `1` | One or more failures (broken link, missing anchor, redirect chain, OG image issue, meta mismatch). |
+| `2` | Bad args, sitemap unreachable, or fixtures malformed. |
+
+## Related
+
+- [API smoke tests](/docs/recipes/api-smoke-tests) — `test-fixture` for the API surface; `verify-web-links` for the public site.
+- [Mock server](/docs/recipes/mock-server) — pair with `verify-web-links --base-url http://localhost:PORT` to smoke-test rendered pages against mocked backends.

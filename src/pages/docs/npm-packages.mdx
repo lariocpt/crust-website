@@ -216,7 +216,7 @@ A `crust.fn` works in both positions. As a **source** (first stage), the first a
 
 When multiple sources define the same name, this is the order — most-specific wins:
 
-1. **Builtins** (`cd`, `export`, `alias`, `sql`, `time`, `test-fixture`, `mock-server`, …).
+1. **Builtins** (`cd`, `export`, `alias`, `sql`, `time`, `test-fixture`, `mock-server`, `verify-web-links`, …).
 2. **`crust.fn(name, …)`** in `init.ts`.
 3. **Auto-dispatched globals** from `~/.bun/install/global`.
 4. **Shell binaries on `$PATH`**.
