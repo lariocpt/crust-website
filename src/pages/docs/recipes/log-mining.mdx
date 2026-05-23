@@ -117,15 +117,60 @@ If your logs are JSON-per-line, parsing and projecting is one lambda each.
   </Fragment>
 </CodeSwitcher>
 
-## Tail-and-watch isn't built in (yet)
+## Tail-and-watch
 
-There's no native `tail -f` integration in v0.1. For now, shell out:
+Crust ships a native `tail` source — last-N lines, `tail -F`-style follow, multi-file merging, and rotation detection — so log streams stay inside the pipeline model without shelling out.
 
-```bash
-tail -F application.log | (l => l.includes('ERROR'))
-```
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Last 100 lines of a log, filter ERRORs through grep
+  tail -n 100 application.log | grep ERROR
 
-`tail -F` produces a continuous stream on stdout; crust's reader handles `\n`-terminated lines from a pipe.
+  # Follow forever, alert on errors
+  tail -F application.log | grep ERROR | (l => notifyPager(l))
+
+  # Follow only — skip the initial cut, only stream new lines
+  tail -F -n 0 application.log | (l => JSON.parse(l))
+
+  # Multi-file: glob or explicit list. Lines from all files merge into one stream.
+  tail logs/*.log | grep ERROR > combined.log
+  tail -F services/*/access.log | (l => l.toUpperCase()) > combined.log
+  tail -F api.log worker.log scheduler.log
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Last 50 lines, ship to a log sink
+  await tail("application.log", { lines: 50 })
+    .pipe(POST("https://logs.example.com/ingest"))
+    .collect();
+
+  // Follow forever, alert on ERROR lines
+  for await (const line of tail("application.log", { follow: true }).lines()) {
+    if (line.includes("ERROR")) await notifyPager(line);
+  }
+
+  // Multi-file: glob string OR array of paths
+  await tail("logs/*.log", { lines: 100 })
+    .filter((l) => l.includes("ERROR"))
+    .to(write("errors.log"));
+
+  // Tail every service's access log, page on 5xx
+  for await (const line of tail("services/*/access.log", { follow: true }).lines()) {
+    if (/5\d\d/.test(line)) await notifyPager(line);
+  }
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+`tail` mirrors POSIX flags — `-F`/`-f` for follow, `-n N` or `--lines=N` for the initial cut. The TS API takes `tail(paths, { lines, follow, pollMs })`, with defaults `lines: 10`, `follow: false`, `pollMs: 200`. `paths` is a string (path or glob) or an array.
+
+**Multi-file semantics:** each file gets its own inode/size loop, rotation handling, and initial-N-lines cut. Lines yield as they arrive — non-deterministic across files, deterministic within one file. The same `tail -f a.log b.log` behavior you'd get from POSIX.
+
+**Rotation:** the follow loop tracks each file by inode and size. A rotate-and-recreate (logrotate, `mv app.log app.log.1 && touch app.log`) is detected via inode change, and the stream switches to the new file automatically. A truncate that shrinks the file below the current offset is also detected and resets the stream. A truncate-and-immediate-overwrite to a size ≥ the prior offset is indistinguishable from an append via `stat` alone, so it's treated as an append — matches GNU `tail -F` behavior.
+
+**Falling back to system `tail`:** unrecognized flags (`-c`, `--pid`, …) fall through to the system binary via the shell, so `tail -c 200 app.log` and `tail --help` keep working.
 
 ## Tips
 

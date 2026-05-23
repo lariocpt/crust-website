@@ -54,6 +54,8 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   src/*.{ts,tsx}                    # globs support **/*, ?, [abc]
   tail app.log                      # last 10 lines, then done
   tail -F app.log                   # follow mode: stream new lines forever
+  tail logs/*.log                   # glob → multi-file merge
+  tail -F api.log worker.log        # follow N files at once
   GET https://api.example.com/v1    # Pipeline<Response>
   GET :3000/health                  # localhost shorthand
   ```
@@ -63,12 +65,14 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   // Shell source via Bun.$
   await $`ls`.text();
 
-  range(0, 9);                       // Pipeline<number>
-  glob("**/*.ts");                   // Pipeline<string>
+  range(0, 9);                          // Pipeline<number>
+  glob("**/*.ts");                      // Pipeline<string>
   glob("src/*.{ts,tsx}");
-  tail("app.log", { lines: 10 });    // Pipeline<string> of lines
-  tail("app.log", { follow: true }); // ...streaming forever
-  GET("https://api.example.com/v1"); // Pipeline<Response>
+  tail("app.log", { lines: 10 });       // Pipeline<string> of lines
+  tail("app.log", { follow: true });    // ...streaming forever
+  tail("logs/*.log");                   // glob → merged stream
+  tail(["api.log", "worker.log"]);      // explicit multi-file
+  GET("https://api.example.com/v1");    // Pipeline<Response>
   GET("http://localhost:3000/health");
   ```
   </Fragment>
