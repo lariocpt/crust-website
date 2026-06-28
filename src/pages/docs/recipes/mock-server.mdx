@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Mock server (OpenAPI)
-description: Boot a Bun.serve instance that mocks every operation in an OpenAPI 3.x spec.
+description: Boot a Bun.serve instance that mocks every operation in an OpenAPI 3.x or Swagger 2.0 spec.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
@@ -48,7 +48,7 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. |
+| `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. **OpenAPI 3.x or Swagger 2.0** — 2.0 docs are auto-normalised (`definitions`→`components.schemas`, `response.schema`→`content`, `#/definitions/*` refs rewritten), so a Flasgger/Swagger-2.0 spec works as-is. |
 | `--port N` | `3000` | `0` requests an ephemeral OS-assigned port. |
 | `--host addr` | `0.0.0.0` | Bind address. |
 | `--cluster N` | `1` | Linux only. Forks N workers sharing the port; each request log line prefixed `[wN]`. |
@@ -128,7 +128,6 @@ The mock is just an HTTP server — drive it with normal crust pipelines.
 
 Honest about what doesn't work yet:
 
-- Swagger 2.0
 - Remote `$ref` resolution
 - Request validation (the mock accepts anything that routes)
 - Faker-style data (every `string` is just `"string"` unless the format is known)
