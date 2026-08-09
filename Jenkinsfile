@@ -27,11 +27,13 @@ pipeline {
                     set -eu
                     test -w /srv/sites || { echo "/srv/sites not writable"; exit 1; }
                     test -x /opt/publish/bin/site-deploy || { echo "site-deploy not mounted"; exit 1; }
-                    test -f package-lock.json || { echo "no package-lock.json"; exit 1; }
-                    # Build with npm + package-lock, NOT bun. Both lockfiles are committed and
-                    # they have drifted (package-lock pins astro 6.4.8, bun.lock 6.3.7); npm ci
-                    # is the reproducible one.
-                    echo "astro: $(node -p "require('./package-lock.json').packages['node_modules/astro'].version" 2>/dev/null || echo unknown)"
+                    test -f bun.lock || { echo "no bun.lock"; exit 1; }
+                    # bun.lock is the ONLY lockfile now. package-lock.json used to sit beside it
+                    # pinning a different astro (6.4.8 vs 6.3.7) with nothing keeping the two in
+                    # step, so it was deleted rather than maintained.
+                    test ! -f package-lock.json || {
+                        echo "package-lock.json is back — bun.lock is the source of truth here"; exit 1; }
+                    echo "astro: $(grep -oE '\"astro@[0-9][^\"]*\"' bun.lock | head -1)"
                 '''
             }
         }
@@ -45,8 +47,11 @@ pipeline {
                     # that host path does not exist as the daemon resolves it — the classic
                     # docker-outside-of-docker trap. Move the tree in and the artifact out with
                     # docker cp, which goes through the client and therefore sees the volume.
-                    CID=$(docker create -w /w -e SITE_URL="$SITE_URL" node:22-bookworm-slim \
-                            sh -c 'set -eu; cd /w; npm ci --no-audit --no-fund; npm run build')
+                    # oven/bun:1 — the same image crust's own binary job uses, so the whole
+                    # crust family builds on one toolchain rather than this site being the only
+                    # thing that needs node.
+                    CID=$(docker create -w /w -e SITE_URL="$SITE_URL" oven/bun:1 \
+                            sh -c 'set -eu; cd /w; bun install --frozen-lockfile; bun run build')
                     trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
 
                     docker cp "$PWD/." "$CID:/w" >/dev/null
