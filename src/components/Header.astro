@@ -14,12 +14,6 @@ const isActive = (prefix: string) =>
 			<a href="/docs/intro" class:list={[{ active: isActive('/docs') && !isActive('/docs/recipes') }]}>Docs</a>
 			<a href="/docs/quickstart" class:list={[{ active: path === '/docs/quickstart' }]}>Quickstart</a>
 			<a href="/docs/recipes" class:list={[{ active: isActive('/docs/recipes') }]}>Recipes</a>
-			<a href="https://github.com/larioborges-timbuk2/crust" rel="noopener" target="_blank" class="github">
-				GitHub
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-					<path d="M7 17L17 7M17 7H8M17 7v9" />
-				</svg>
-			</a>
 		</nav>
 	</div>
 </header>

@@ -1,0 +1,57 @@
+---
+// Caddy's `handle_errors` block for crust.in.drlario.org rewrites any error to /404.html and
+// serves it from this site's root. Until this page existed that block was inert — a missing
+// path fell through to Caddy's own bare 404 body, which says nothing about crust.
+//
+// Astro emits /404.html for this file automatically, which is exactly the name Caddy asks
+// for, so nothing in the Caddyfile has to change.
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+	title="Not found — crust"
+	description="That page does not exist."
+>
+	<section class="notfound">
+		<p class="code">404</p>
+		<h1>That page does not exist.</h1>
+		<p class="lead">
+			The link may be out of date, or the page may have moved. The docs are the best place
+			to pick the thread back up.
+		</p>
+		<div class="actions">
+			<a class="btn primary" href="/docs/intro">Read the docs</a>
+			<a class="btn ghost" href="/">Back home</a>
+		</div>
+	</section>
+</Layout>
+
+<style>
+	.notfound {
+		max-width: 40rem;
+		margin: 0 auto;
+		padding: 6rem 1.25rem 8rem;
+		text-align: center;
+	}
+	.code {
+		font-family: var(--font-mono);
+		font-size: 4rem;
+		line-height: 1;
+		margin: 0 0 1rem;
+		color: var(--accent);
+	}
+	h1 {
+		font-size: 1.6rem;
+		margin: 0 0 0.75rem;
+	}
+	.lead {
+		color: var(--fg-muted);
+		margin: 0 0 2rem;
+	}
+	.actions {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+</style>
