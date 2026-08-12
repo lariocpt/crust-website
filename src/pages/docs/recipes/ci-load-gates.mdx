@@ -1,0 +1,217 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: CI load gates
+description: Turn stats summaries into pass/fail — chained assert thresholds, baseline comparison with stats --out, honest exit codes, and CI snippets.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** make "is the service still fast?" a CI gate — a command that exits `0` when the numbers are healthy and `1` when they're not, with the offending number in the failure message.
+
+Crust has no special threshold syntax, because it doesn't need one: `stats` yields a plain object, and `assert` awaits a real JS predicate. Thresholds are just composition.
+
+## The minimal gate
+
+```bash
+load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200)
+```
+
+That's a complete CI performance gate. The summary object flows into the predicate; falsy fails the pipeline with exit 1. In CI, wrap it in `crust -c '…'` and the job step inherits the exit code.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  crust -c 'load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200)'
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // The same gate from a bun-run script
+  const [summary] = await load([{ durMs: 30_000, rps: 100 }])
+    .pipe(parallel(50, timedGet("http://localhost:3000/health")))
+    .pipe(statsStage())
+    .collect();
+
+  if (summary.p95 >= 200) {
+    console.error(`p95 gate failed: ${summary.p95}ms`);
+    process.exit(1);
+  }
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+## One assert per threshold
+
+You *can* cram every condition into one predicate. Don't. Chain one `assert` per threshold, because the failure message names the exact predicate that broke — and prints the actual summary:
+
+```bash
+load 30s 100/s | parallel 50 | GET :3000/health | stats \
+  | assert (s => s.status["200"] === s.count) \
+  | assert (s => s.p95 < 200) \
+  | assert (s => s.p99 < 500) \
+  | assert (s => s.rps > 80)
+```
+
+```text
+crust: assert: item 1 failed (s => s.p95 < 200) — got {"count":3000,"wallMs":30006,"rps":100,"status":{"200":3000},"p50":48.2,"p95":312.4,"p99":401.0,"meanMs":61.3}
+```
+
+Read a red CI log from a chained gate and you know *which* threshold fell and *what* the number was, without rerunning anything. A single `s.p95 < 200 && s.rps > 80` predicate tells you only "false".
+
+The first line in that chain — gating the status histogram inside the predicate — is deliberate; see [the `expect` trap](#the-trap-expect-before-stats-hides-the-summary) below.
+
+## Baselines — `stats --out` + an async assert
+
+Fixed thresholds rot: a "p95 < 200ms" gate on a service that normally runs at 40ms lets a 4× regression through. The alternative is comparing against a recorded baseline, and both halves are one flag and one line.
+
+**Record** — `--out` writes a versioned artifact alongside the stdout summary:
+
+```bash
+load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/baseline.json
+```
+
+```json
+{
+  "crustStats": 1,
+  "startedAt": "2026-08-12T15:47:31.422Z",
+  "urls": ["http://localhost:3000/health"],
+  "summary": {
+    "count": 1000, "wallMs": 10002, "rps": 100,
+    "status": { "200": 1000 },
+    "p50": 41.6, "p95": 48.2, "p99": 63.1, "meanMs": 42.0
+  }
+}
+```
+
+`summary` is exactly the stdout summary object; runs with `--every` also carry a `windows` array. The path is env-expanded (`--out $RUN_DIR/health.json`); only `.json` is supported. Commit the baseline, or stash it as a CI artifact.
+
+**Compare** — `assert` awaits async predicates, so the current run can read the baseline back with `Bun.file`:
+
+```bash
+load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json \
+  | assert (async s => { const b = await Bun.file("load/baseline.json").json(); return s.p95 < 2 * b.summary.p95 })
+```
+
+"Worse than 2× the recorded p95 is a failure" — relative, so it tightens as the service gets faster.
+
+One property makes this CI-safe: **the artifact is written before the summary reaches the gate**, so a run that fails the threshold still leaves `load/last.json` behind. Upload it on failure and you can diff the bad run against the baseline instead of re-triggering it.
+
+## Exit codes
+
+| Situation | Exit |
+|---|---|
+| Every stage drained, every `assert`/`expect` satisfied | `0` |
+| An `assert` predicate returned falsy (or its upstream was empty) | `1` |
+| An `expect` found mismatched statuses at drain | `1` |
+| Multi-line `-c` script: any line fails | that line's code — **fail-fast**, later lines never run |
+| Builtin runners (`test-pipes`, `test-fixture`): bad args / no files | `2` |
+
+`crust -c` with a multi-line string stops at the first failing line and exits with *its* code — a later successful line can't mask an earlier failure. That's what makes multi-line `-c` scripts safe as single CI steps.
+
+## The warmup pattern
+
+Cold JITs, empty caches and unopened pools belong to the first requests, not to your gate. Make warmup its own line in the same script — its summary simply isn't gated:
+
+```bash
+crust -c 'range(0, 99) | parallel 10 | GET :3000/health | stats
+load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200)'
+```
+
+Line 1 pushes 100 requests through and prints a summary nobody judges. Line 2 is the measured run. Fail-fast still applies: if the warmup line itself errors (service down), the gate never runs and the step fails honestly.
+
+## Gating a soak — `--every` windows
+
+For long runs, gate each window so degradation fails the job *when it happens*, not twenty minutes later at the final summary. Window objects carry `window: N` and the cumulative one carries `final: true`; guard the predicate with those keys to scope it:
+
+```bash
+load 10m 50/s | parallel 25 | GET :3000/health | stats --every 30 \
+  | assert (s => !s.window || s.p95 < 400) \
+  | assert (s => !s.final  || s.p95 < 200)
+```
+
+Windows may be allowed a looser bound than the final cumulative number — a GC pause is a window-sized event, a slow *average* is a regression. Both guards are also correct without `--every` (the plain summary carries neither key, so the threshold applies unguarded).
+
+## The trap: `expect` before `stats` hides the summary
+
+```bash
+# looks reasonable, loses the evidence
+… | GET :3000/health | expect 200 | stats | assert (s => s.p95 < 200)
+```
+
+A failing `expect` throws at drain — *before* `stats` emits — so the run dies with:
+
+```text
+crust: expect 200: 10/10 responses did not match
+```
+
+…and no summary: no percentiles, no status histogram, nothing to debug with. Either gate statuses **inside** the predicate, where the whole summary is already in hand —
+
+```bash
+… | GET :3000/health | stats | assert (s => s.status["200"] === s.count) | assert (s => s.p95 < 200)
+```
+
+— or accept that a hard `expect` failure costs you the stats. For load gates, prefer the predicate form: when 3% of requests 503, the number you want in the log is *which* 3%, and the histogram has it.
+
+## Honest numbers (or: why you can trust the gate)
+
+Most load tools fail quietly in one specific way: when the target can't keep up, they slow their own request clock, then report the *target* rate with flattering latencies — coordinated omission. Crust's `load` source is built so the gate can't lie to CI:
+
+- Slots are anchored to absolute wall-clock times. When the `parallel` pool is saturated, stale slots are **skipped, never burst** — and the shortfall is reported to stderr when the stream drains:
+
+  ```text
+  load: target 3000 ticks — emitted 2868, dropped 132 (downstream saturated; raise parallel N?), achieved 95.6/s
+  ```
+
+- `stats.rps` is always the **measured** rate. If your gate says `s.rps > 80` and the run only achieved 60/s, the gate fails — crust structurally cannot report a rate it didn't sustain.
+- `ms` values are true request durations, and completion-order streaming means each lands in the window it finished in — the percentiles under the gate are the percentiles that happened.
+
+So a green gate means: the target rate was actually offered, the responses actually came back in time, and the artifact on disk is what the run actually did.
+
+## CI wiring
+
+The gate is a shell command with a meaningful exit code, so any CI runs it. Two things matter in the wiring: wait for readiness with `wait` instead of a curl-sleep loop, and warm up before you measure.
+
+**GitHub Actions:**
+
+```yaml
+perf-gate:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - run: ./scripts/install-crust.sh          # or bake crust into your runner image
+    - run: bun run start &                     # boot the service under test
+    - run: crust -c 'wait :3000/health --timeout 40s --interval 2s'
+    - name: load gate
+      run: |
+        crust -c 'range(0, 99) | parallel 10 | GET :3000/health | stats
+        load 30s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (s => s.p95 < 200) | assert (s => s.rps > 80)'
+    - name: keep the evidence
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: load-summary
+        path: load/last.json
+```
+
+**Jenkins (declarative):**
+
+```groovy
+stage('perf gate') {
+  steps {
+    sh 'crust -c "wait :3000/health --timeout 40s --interval 2s"'
+    sh '''crust -c 'range(0, 99) | parallel 10 | GET :3000/health | stats
+load 30s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (s => s.p95 < 200) | assert (s => s.rps > 80)' '''
+  }
+  post {
+    failure { archiveArtifacts artifacts: 'load/last.json', allowEmptyArchive: true }
+  }
+}
+```
+
+`wait` blocks until the target answers 2xx (or a `port:5432`-style TCP probe connects) and exits 1 if it never does — so a service that fails to boot fails the step *before* the gate, with a distinguishable message. See [One dev tail](/docs/recipes/dev-tail/) for `wait` and process orchestration.
+
+## Related
+
+- [Stress testing](/docs/recipes/stress-testing/) — the load scenarios these gates sit on: ramps, soaks, drop accounting, pool sizing.
+- [API smoke tests](/docs/recipes/api-smoke-tests/) — correctness gates for the same pipeline vocabulary.
+- [One dev tail](/docs/recipes/dev-tail/) — `wait`, `procs` readiness probes and dependency ordering for CI boot.

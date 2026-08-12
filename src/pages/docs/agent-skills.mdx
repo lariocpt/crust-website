@@ -1,0 +1,105 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Agent skills
+description: Five Claude agent skills ship inside the crust binary — skills list to see them, skills install to drop them into .claude/skills/, grammar-lint-tested so they can't rot.
+---
+
+**Goal:** teach a coding agent to drive crust well — pipelines, test suites, mocks, load runs, process supervision — without pasting docs into every prompt.
+
+Crust ships **agent skills**: `SKILL.md` guides in the format Claude Code (and other Claude-based agents) discover from a project's `.claude/skills/` directory. They're embedded in the crust binary itself, so the skills you install always match the binary you're running — no version skew between "what the agent was taught" and "what the shell actually parses".
+
+## See what's embedded
+
+```bash
+skills list
+```
+
+```text
+crust-api-testing
+    Test HTTP APIs with crust — .pipes suites (one fixture pipeline per line, request
+    chaining via capture, inline SQL verification), .crust.ts fixtures with setup/matchers,
+    and gen-fixtures which derives negative-case matrices and CRUD flow suites from an
+    OpenAPI spec. Use for API integration tests, contract tests from a spec, auth/authz
+    negative cases, or DB-verified endpoint tests.
+crust-load-testing
+    Load-test and soak-test HTTP services with crust — the load rate source, parallel
+    workers, timed verbs, stats windows, CI threshold gates via assert, and baseline
+    comparison with stats --out. Use for smoke-load, latency percentiles, rps checks,
+    performance regression gates in CI, or "is this endpoint fast/degrading" questions.
+crust-mock-server
+    Mock an API from an OpenAPI spec with crust mock-server — example-first responses,
+    in-memory stateful CRUD, request validation with 422s, and validation-proxy mode that
+    checks a REAL API's spec conformance. Use for mocking backends, frontend dev without a
+    server, contract/conformance testing, or checking whether an API matches its openapi.json.
+crust-pipelines
+    Compose crust shell pipelines — sources (range, glob, read, tail, GET, load, procs, sql),
+    transforms (TS lambdas, HTTP verbs, parallel), assertions (expect, assert), and request
+    chaining with capture. Use when writing or debugging crust one-liners, `crust -c` scripts,
+    or .pipes lines that mix HTTP, SQL, and processes.
+crust-procs
+    Run and supervise dev processes with crust — procs() merges multiple long-lived commands
+    into one pipeable stream with per-proc env, restart backoff, readiness probes (ready:),
+    dependency ordering (after:), and process-group teardown; wait blocks until a port/URL
+    is up. Use for dev runners ("start db, api, web in order"), readiness gating in CI,
+    tailing multiple services, or mining merged process logs.
+```
+
+## What each skill covers
+
+| Skill | Teaches the agent to… | Leans on |
+|---|---|---|
+| `crust-pipelines` | Write and debug pipeline lines: pick the right source, compose lambdas/verbs/`parallel`, chain requests with `capture`, know where `$VAR` expands. The foundation the other four assume. | [Quickstart](/docs/quickstart/) |
+| `crust-api-testing` | Build `.pipes` suites with capture chaining and SQL cross-checks, write `.crust.ts` fixtures, and derive negative matrices + CRUD flows from an OpenAPI spec. | [API smoke tests](/docs/recipes/api-smoke-tests/), [gen-fixtures](/docs/recipes/gen-fixtures/) |
+| `crust-load-testing` | Shape `load` scenarios and ramps, size `parallel` pools, read drop reports, and wire `stats`/`assert` threshold gates with baselines into CI. | [Stress testing](/docs/recipes/stress-testing/), [CI load gates](/docs/recipes/ci-load-gates/) |
+| `crust-mock-server` | Boot spec mocks, use stateful CRUD for round-trip flows, interpret `--validate` 422s, and run conformance audits with `--proxy`. | [Mock server](/docs/recipes/mock-server/) |
+| `crust-procs` | Orchestrate processes with `ready:`/`after:`/`restart:`, tail merged logs, and gate CI on `wait`. | [One dev tail](/docs/recipes/dev-tail/) |
+
+## Install
+
+```bash
+skills install              # write to ./.claude/skills/<name>/SKILL.md  (project)
+skills install --global     # write to ~/.claude/skills/                 (every project)
+```
+
+```text
+skills: installed 5, up-to-date 0 → /app/.claude/skills
+```
+
+Project-level install is the default and usually the right call: the skills land next to your code, get committed, and every agent (and teammate's agent) working in the repo picks them up. `--global` suits a machine where *you* use crust everywhere but don't want to touch each repo.
+
+The install is **idempotent** — run it again and unchanged files are left alone:
+
+```text
+skills: installed 0, up-to-date 5 → /app/.claude/skills
+```
+
+And it's **respectful of your edits**. If you've customized an installed skill locally, a plain reinstall refuses to clobber it and exits 1:
+
+```text
+skills: 1 file(s) differ from the embedded version — pass --force to overwrite:
+  /app/.claude/skills/crust-pipelines/SKILL.md
+```
+
+`skills install --force` overwrites with the embedded version. Exit codes: `0` ok, `1` refused overwrites, `2` bad args.
+
+Typical upgrade flow — after updating crust, refresh the skills so they describe the binary you now have:
+
+```bash
+skills install          # picks up new/changed skills; exits 1 if you have local edits
+git diff .claude/skills # review what the new crust version taught differently
+```
+
+## How the grammar lint keeps them honest
+
+An agent skill is only useful if its examples actually run — a skill that demonstrates syntax the shell rejects is worse than no skill, because the agent will confidently reproduce the broken form. Crust enforces this in its own test suite:
+
+- Every skill's fenced ```` ```crust ```` example blocks are extracted at test time.
+- Every line is tokenized and **classified against the live shell grammar** — the same lexer the binary uses at the prompt. A line that fails to classify fails the build.
+- Lines whose head is a pipeline keyword (`capture`, `expect`, `stats`, `load`, `read`, `assert`, `GET`/`POST`/…, `range(…)`) additionally assert they classify as *that stage kind* and not as a fall-through shell command — the exact failure mode of a stale example after a grammar change.
+
+So when the grammar evolves, the test suite turns every outdated skill example into a red test in the same commit. The skills can't silently rot: what the agent learns is checked against what the shell parses, on every `bun test`.
+
+## Related
+
+- [Quickstart](/docs/quickstart/) — the human-readable version of what the skills teach.
+- [Recipes](/docs/recipes/) — the workflows the skills point agents at.

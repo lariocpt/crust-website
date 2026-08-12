@@ -1,14 +1,14 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Stress testing
-description: Shell-native load one-liners, soak runs with windowed stats --every summaries, and .crust.ts fixtures at volume with p50/p95/p99 reports.
+description: Paced load scenarios with ramps and drop accounting, soak runs with windowed stats --every summaries, and .crust.ts fixtures at volume with p50/p95/p99 reports.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
-**Goal:** push a single fixture (or a glob of fixtures) at high volume with varied inputs, then read the latency distribution out of a JSON or Markdown report.
+**Goal:** put controlled pressure on a service — a burst, a paced scenario, a long soak, or a fixture glob at volume — and read the latency distribution out of honest numbers.
 
-## The one-liner (read paths)
+## The one-liner (fixed count)
 
 For a plain GET hammer, skip fixtures entirely — the load stages are shell-native:
 
@@ -20,14 +20,81 @@ range(0, 999) | parallel 50 | GET :3000/health | expect 200 | stats
 `parallel N` sets the fan-out for the next http stage, `GET` fires one timed
 request per upstream item, `expect NNN` fails the pipeline (exit 1) naming
 the mismatch count, and `stats` yields one summary with real latency
-percentiles, rps and a status histogram. For write paths and DB-verified
-flows, use fixtures below.
+percentiles, rps and a status histogram. `range` answers "how fast can we
+serve N requests" — as fast as possible, no pacing. When the question is
+"how do we behave at *this* rate for *this* long", use `load`.
 
 > `parallel` streams results in **completion order**, not input order. That's
 > deliberate: downstream stages see each result the moment it settles, which
-> is what makes the windowed soak stats below meaningful — a barrier variant
-> would dump everything into the final window. Sort downstream if you need
-> input order.
+> is what makes windowed soak stats meaningful — a barrier variant would dump
+> everything into the final window. Sort downstream if you need input order.
+
+## Scenarios — duration & rate (`load`)
+
+`load <dur> <rate>` is a **paced** source: one tick per scheduled slot, for a
+wall-clock duration. Durations in `ms`/`s`/`m`, rates as `N/s` or `N/m`
+(decimals allowed). The minimal scenario is one phase:
+
+```bash
+load 30s 100/s | parallel 50 | GET :3000/health | stats
+```
+
+Slots are anchored to absolute times, so pacing doesn't drift, and each phase
+ends on its wall-clock regardless of how many ticks got out.
+
+**Ramps** are comma-separated phases in one stream — warm up gently, then
+push:
+
+```bash
+load 10s 50/s, 30s 200/s | parallel 50 | GET :3000/health | stats
+```
+
+**Write-path load** works because ticks are real objects —
+`{n, phase, scheduledAt, lagMs}` — so a body-factory lambda between `load`
+and the verb has material to build unique payloads from:
+
+```bash
+load 10s 20/s | (t => ({name: "load-" + t.n, kind: "widget"})) \
+  | parallel 8 | POST :3000/api/things -H "authorization: Bearer $TOKEN" \
+  | expect 201 | stats
+```
+
+The `parallel` modifier puts **any** verb in load mode: output becomes
+`{status, ms, url}` timing records, bodies are drained, and a network error
+yields a `status: 0` record instead of killing the run. (`parallel 1 | POST …`
+is the explicit opt-in for serial-but-timed. Putting `parallel` before
+anything that isn't an http verb, lambda, or registered fn — or leaving it
+trailing — is a loud parse error, not a silent no-op.)
+
+### Reading the drop report
+
+When downstream can't keep up — the `parallel` pool is saturated — stale
+slots are **skipped, never burst**. Crust counts them and reports the
+shortfall on stderr when the stream drains:
+
+```text
+load: target 150 ticks — emitted 40, dropped 110 (downstream saturated; raise parallel N?), achieved 13.2/s
+```
+
+That line is the difference between a load tool and a flattery tool. If the
+target rate wasn't sustained, you find out — and `stats.rps` is always the
+**measured** rate, so crust structurally cannot report a rate it didn't
+achieve (the classic coordinated-omission trap: pause the clock while the
+server chokes, then advertise the target as the result). Dropped slots are
+never bursted later, because a burst would measure a traffic shape you didn't
+ask for.
+
+### Sizing `parallel` — Little's law
+
+The pool you need is `rate × latency`: at 100/s against a ~150ms endpoint,
+about 15 requests are in flight at any instant, so `parallel 20` gives
+headroom; `parallel 8` guarantees drops. Start there, and let the drop
+report tell you if you guessed low — a nonzero `dropped` count with a healthy
+server means the *pool* is the bottleneck, not the service.
+
+One honest ceiling: Bun's ~1ms sleep floor makes roughly 500–1000 ticks/s per
+process the realistic maximum. This is CI smoke-load and soak tooling, not a
+distributed load rig.
 
 ## Soak testing — `stats --every N`
 
@@ -48,11 +115,30 @@ range(0, 99999) | parallel 50 | GET :3000/health | stats --every 5
 Each window is a fresh accumulator — window 3's rising p99 and 503s are
 *this window's* problem, visible while it happens, not averaged away by the
 first two minutes. Windows flush on the item path, so a fully stalled
-upstream holds the next window until an item arrives.
+upstream holds the next window until an item arrives. Because results stream
+in completion order, a slow request lands in the window it *finished* in,
+and `ms` values are true durations — the percentiles stay honest.
 
-## The shape of it
+### Gating a soak
 
-`--count N` runs every matched fixture N times. Combine with `--threads M` for concurrency. When `N > 1` the report adds a stress block per fixture: `p50`, `p95`, `p99`, mean, min, max, plus the status-code distribution. Each result is tagged with its `iter` index so failures point at the offending iteration.
+Windows are plain objects, so a chained `assert` turns "watch the soak" into
+"fail the soak the moment a window degrades". Guard the predicate with the
+tag keys to scope it:
+
+```bash
+… | stats --every 5 | assert (s => !s.window || s.p95 < 400)   # gate each window
+… | stats --every 5 | assert (s => !s.final  || s.p95 < 200)   # gate only the final summary
+```
+
+A bare predicate would run against every window object AND the final summary;
+the `!s.window ||` / `!s.final ||` guards scope it to one or the other (both
+are also correct without `--every` — the plain summary carries neither key).
+The whole threshold story — chained asserts, baselines, exit codes, CI
+snippets — is its own recipe: [CI load gates](/docs/recipes/ci-load-gates/).
+
+## Fixtures at volume — `--count` / `--threads`
+
+`--count N` runs every matched fixture N times. Combine with `--threads M` for concurrency. When `N > 1` the report adds a stress block per fixture: `p50`, `p95`, `p99`, mean, min, max, plus the status-code distribution. Each result is tagged with its `iter` index so failures point at the offending iteration. Reach for this over `load` when the traffic that matters is *your fixtures* — auth'd, DB-verified, multi-assertion requests — rather than a URL.
 
 <CodeSwitcher>
   <Fragment slot="bash">
@@ -178,5 +264,6 @@ Exit codes: `0` all pass, `1` any failure or error, `2` no files matched or bad 
 
 ## Related
 
+- [CI load gates](/docs/recipes/ci-load-gates/) — thresholds, baselines, and exit codes for everything on this page.
 - [API smoke tests](/docs/recipes/api-smoke-tests/) — same fixtures, single-iteration mode.
 - [Mock server](/docs/recipes/mock-server/) — pair stress mode against an OpenAPI mock when the real backend isn't ready.

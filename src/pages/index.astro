@@ -26,14 +26,23 @@ import FeatureCard from '../components/FeatureCard.astro';
 				<FeatureCard icon="🔁" title="HTTP verbs as stages">
 					<p>
 						<code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>PATCH</code>,
-						<code>DELETE</code> ship as pipeline stages — auto JSON encoding, status
-						matchers, retries.
+						<code>DELETE</code> ship as pipeline stages — auto JSON encoding, headers via
+						<code>-H</code>, status matchers like <code>expect 201</code> and
+						<code>expect 2xx</code>.
 					</p>
 				</FeatureCard>
-				<FeatureCard icon="⚡" title="Parallel workers built in">
+				<FeatureCard icon="🔗" title="Request chaining — capture">
 					<p>
-						<code>range(0, 9999) | parallel 100 | GET :3000/health | stats</code> — N
-						concurrent workers, order-preserving.
+						<code>POST … | (r =&gt; r.json()) | capture ID (b =&gt; b.id)</code> — later
+						lines expand <code>$ID</code>. Whole CRUD flows as <code>.pipes</code> suites,
+						no framework.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="⚡" title="Load scenarios & CI gates">
+					<p>
+						<code>load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s =&gt;
+						s.p95 &lt; 200)</code> — paced ramps, honest drop accounting, thresholds as
+						chained asserts.
 					</p>
 				</FeatureCard>
 				<FeatureCard icon="🧪" title="Fixture testing & stress mode">
@@ -42,10 +51,18 @@ import FeatureCard from '../components/FeatureCard.astro';
 						<code>.crust.ts</code> fixtures with p50/p95/p99 reports.
 					</p>
 				</FeatureCard>
-				<FeatureCard icon="🌐" title="OpenAPI mock server">
+				<FeatureCard icon="🌐" title="OpenAPI mock, validator & proxy">
 					<p>
-						<code>mock-server --swagger ./openapi.yaml --port 4000</code> — boot a
-						spec-driven mock with example-first response selection.
+						<code>mock-server --swagger ./openapi.yaml</code> — spec-driven mock with
+						<code>--stateful</code> CRUD, <code>--validate</code> 422s, and a
+						<code>--proxy</code> mode that audits a real backend's conformance.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="🤖" title="Agent skills, embedded">
+					<p>
+						<code>skills install</code> drops five Claude agent skills into
+						<code>.claude/skills/</code> — grammar-lint-tested against the live parser, so
+						examples can't rot.
 					</p>
 				</FeatureCard>
 				<FeatureCard icon="🔗" title="Verify web links + SEO">
@@ -76,8 +93,16 @@ import FeatureCard from '../components/FeatureCard.astro';
 				<a class="recipe" href="/docs/recipes/stress-testing/">
 					<h3>Stress testing</h3>
 					<p>
-						<code>--count</code> + <code>--threads</code> + <code>random</code> helpers for
-						randomized, high-volume fixture runs.
+						Paced <code>load</code> scenarios with ramps and drop accounting — plus
+						<code>--count</code> + <code>--threads</code> fixture runs at volume.
+					</p>
+					<span class="more">Read recipe →</span>
+				</a>
+				<a class="recipe" href="/docs/recipes/ci-load-gates/">
+					<h3>CI load gates</h3>
+					<p>
+						<code>stats | assert (s =&gt; s.p95 &lt; 200)</code> — thresholds, baselines
+						via <code>stats --out</code>, and honest exit codes for CI.
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>

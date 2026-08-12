@@ -10,15 +10,19 @@ Hand-picked workflows. Each recipe is a focused scenario — what the goal is, t
 
 <div class="recipe-grid">
   <RecipeCard href="/docs/recipes/stress-testing/" title="Stress testing" tag="Load">
-    Shell-native load one-liners, soak runs with windowed <code>stats --every</code> summaries, and <code>test-fixture --count N --threads M</code> with randomized inputs and p50/p95/p99 reports.
+    Paced <code>load</code> scenarios with ramps and drop accounting, soak runs with windowed <code>stats --every</code> summaries, and <code>test-fixture --count N --threads M</code> with randomized inputs and p50/p95/p99 reports.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/ci-load-gates/" title="CI load gates" tag="Load">
+    <code>stats | assert (s =&gt; s.p95 &lt; 200)</code> — chained thresholds, baseline comparison via <code>stats --out</code>, warmup patterns, and exit codes CI can trust.
   </RecipeCard>
 
   <RecipeCard href="/docs/recipes/mock-server/" title="OpenAPI mock server" tag="HTTP">
-    Boot a <code>Bun.serve</code> mock from any OpenAPI 3.x spec. Example-first response selection — or <code>--stateful</code> in-memory CRUD that remembers what you POST.
+    Boot a <code>Bun.serve</code> mock from any OpenAPI 3.x spec — <code>--stateful</code> CRUD, <code>--validate</code> 422 request validation, and a <code>--proxy</code> mode that audits a real backend's spec conformance.
   </RecipeCard>
 
   <RecipeCard href="/docs/recipes/gen-fixtures/" title="Generated negative fixtures" tag="HTTP">
-    <code>gen-fixtures --swagger spec.json</code> derives the 401/403/404 and per-field 400 matrix from your OpenAPI spec — <code>.crust.ts</code> files the fixture runner executes.
+    <code>gen-fixtures --swagger spec.json</code> derives the 401/403/404 matrix, per-field 400 and boundary cases, and capture-chained CRUD flow suites from your OpenAPI spec.
   </RecipeCard>
 
   <RecipeCard href="/docs/recipes/verify-web-links/" title="Verify web links + SEO" tag="HTTP">

@@ -1,11 +1,12 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: One dev tail
-description: Merge every dev process — app server, bundler, watcher — into a single tagged, pretty stream.
+description: Merge every dev process into one tagged stream — with readiness probes, dependency ordering, crash-loop-capped restarts, and CI-friendly wait.
 ---
 
 **Goal:** run the whole dev stack with one command and read one coherent log,
-instead of three terminals fighting for attention.
+instead of three terminals fighting for attention — and reuse the same
+process supervisor for CI boot ordering.
 
 ## The shape of it
 
@@ -21,7 +22,7 @@ procs({web: "bun run dev:web", api: "bun api.ts", tsc: "tsc -b --watch"}) \
 ## Object specs — per-proc env and auto-restart
 
 A spec value can be an object instead of a bare command string:
-`{cmd, env?, restart?}`.
+`{cmd, env?, restart?, ready?, after?}`.
 
 ```bash
 procs({
@@ -39,6 +40,110 @@ procs({
   `exit` stream between attempts. A **user kill** (Ctrl-C / SIGTERM) never
   respawns — restart is for crashy dev servers, not for fighting your own
   shutdown.
+
+### Capping crash loops — `restart: {max: N}`
+
+Bare `restart: true` retries forever, which is right for a dev server you're
+actively editing and wrong for one that can't boot at all. `restart: {max: N}`
+gives up after N consecutive restarts:
+
+```bash
+procs({flaky: {cmd: "sh -c \"echo boom; exit 1\"", restart: {max: 3}}}) \
+  | (l => l.proc + " [" + l.stream + "] " + l.line)
+```
+
+```text
+flaky [stdout] boom
+flaky [exit] exited with code 1
+flaky [exit] restarting in 250ms
+flaky [stdout] boom
+flaky [exit] exited with code 1
+flaky [exit] restarting in 500ms
+flaky [stdout] boom
+flaky [exit] exited with code 1
+flaky [exit] restarting in 1000ms
+flaky [stdout] boom
+flaky [exit] exited with code 1
+flaky [exit] giving up after 3 restart(s)
+```
+
+The counter resets after a stretch of **more than 10s of uptime** — it guards
+against crash *loops*, not against a long-lived server ever crashing twice.
+
+## Boot order — `ready:` probes and `after:` dependencies
+
+The classic dev-stack race: the API boots faster than Postgres accepts
+connections, spews reconnect noise, and sometimes wedges. `ready:` gives a
+process a definition of "up", and `after:` makes dependents wait for it:
+
+```bash
+procs({
+  db:  {cmd: "docker compose up pg", ready: "port:5432"},
+  api: {cmd: "bun api.ts", after: "db", ready: ":3001/health", restart: {max: 3}},
+  web: {cmd: "bun run dev", after: "api", env: {PORT: "3001"}}
+}) | (l => l.proc + " | " + l.line)
+```
+
+Probe forms: `":3001/health"` / `"http(s)://…"` (ready = any 2xx) or
+`"port:5432"` (ready = TCP connect succeeds). Long form
+`{url?, port?, timeoutMs?, intervalMs?}` — defaults 30s / 250ms. Probe
+progress arrives on a `ready` stream, so the merged log shows the
+choreography:
+
+```text
+migrate [ready] waiting for db
+db [stdout] db accepting connections
+db [ready] ready after 755ms (port:5432)
+migrate [stdout] running migrations
+migrate [stdout] migrations done
+migrate [exit] exited with code 0
+```
+
+The semantics that make this CI-usable, not just cosmetic:
+
+- `after` accepts a name or a list; procs without a `ready:` probe count as
+  ready once spawned. Unknown names, self-dependencies, and cycles throw
+  **before anything spawns**.
+- Gating is **one-shot**: a dependency restarting later never re-blocks a
+  dependent. But a dependency that dies or gives up before ever becoming
+  ready fails the whole pipeline with
+  `dependency "db" exited before becoming ready` — no half-booted stack.
+- On probe timeout, a restartable proc is killed and respawned (readiness is
+  re-awaited after every restart); a non-restartable one **fails the
+  pipeline**. In CI that's exactly what you want: a service that can't get
+  healthy is a red build, not a hung one.
+- Teardown is thorough: children are spawned in their own process group and
+  the whole group is SIGTERM'd when the pipeline ends, escalating to SIGKILL
+  after 3s — grandchildren (a dev server spawned via `sh -c`, say) don't
+  outlive the pipeline.
+
+## `wait` — readiness as a pipeline stage
+
+Sometimes the process is started elsewhere (docker compose, a CI service
+container) and you just need to *block until it answers*. `wait` replaces the
+curl-sleep retry loop:
+
+```bash
+wait :3001/api/health --timeout 40s --interval 2s
+# {"target":":3001/api/health","ready":true,"ms":7,"attempts":1}
+
+wait port:5432 --timeout 30s
+# {"target":"port:5432","ready":true,"ms":2,"attempts":1}
+```
+
+Same probe grammar as `ready:` — any 2xx for URLs, TCP connect for
+`port:N` — with durations like `300ms`/`30s`/`2m` (defaults 30s / 500ms). Not
+ready in time → `crust: wait: :3001/api/health not ready after 40s`, exit 1.
+In a CI script that's one honest line between "boot" and "test":
+
+```bash
+crust -c 'wait :3000/health --timeout 40s --interval 2s'
+crust -c "test-pipes --target 'tests/**/*.pipes' --bail"
+```
+
+And because it emits a `{target, ready, ms, attempts}` record, it composes —
+`wait :3000/health --timeout 40s | (r => "up after " + r.ms + "ms")` if you
+want boot time in the log.
 
 ## With pino-pretty
 
@@ -62,8 +167,14 @@ structured fields from your server logs render as inline JSON context.
 
 - One process crashing does **not** kill the others; you get an
   `exited with code N` line and the rest keep streaming (add
-  `restart: true` to its spec to respawn it automatically).
-- `stream` is `"stdout" | "stderr" | "exit"` — route stderr to error level in
-  your normalizer (but downgrade `$ command` echo lines from script runners).
+  `restart` to its spec to respawn it automatically).
+- `stream` is `"stdout" | "stderr" | "exit" | "ready"` — route stderr to
+  error level in your normalizer (but downgrade `$ command` echo lines from
+  script runners).
 - `FORCE_COLOR=0` is set for children so ANSI noise doesn't corrupt JSON
   parsing; let pino-pretty re-colorize at the end of the pipe.
+
+## Related
+
+- [CI load gates](/docs/recipes/ci-load-gates/) — `wait` + gated load runs as CI steps.
+- [Log mining](/docs/recipes/log-mining/) — the same lambda vocabulary over log files instead of live processes.

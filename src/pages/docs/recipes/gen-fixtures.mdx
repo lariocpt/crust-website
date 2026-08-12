@@ -1,24 +1,28 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Generated negative fixtures
-description: Derive the 401/403/404/400 test matrix from your OpenAPI spec — gen-fixtures writes .crust.ts files, test-fixture runs them.
+description: Derive the 401/403/404/400 matrix, per-field boundary violations, and capture-chained CRUD flow suites from your OpenAPI spec.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
-**Goal:** stop hand-writing the boring-but-critical rejection tests. If your OpenAPI spec documents what the server must *reject*, `gen-fixtures` can derive the whole negative matrix — unauthenticated, wrong-scope, unknown-id, and per-field validation cases — as `.crust.ts` files that `test-fixture` runs like any other fixture.
+**Goal:** stop hand-writing the boring-but-critical rejection tests. If your OpenAPI spec documents what the server must *reject*, `gen-fixtures` can derive the whole negative matrix — unauthenticated, wrong-scope, unknown-id, per-field validation, and per-field *boundary* cases — as `.crust.ts` files that `test-fixture` runs like any other fixture. And for every qualifying collection it also derives a **CRUD flow suite**: a capture-chained `.pipes` file that creates, reads, updates, deletes, and checks the tombstone.
 
 ## The shape of it
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  # Spec in, one <tag>.gen.crust.ts per OpenAPI tag out
+  # Spec in; one <tag>.gen.crust.ts per OpenAPI tag out, plus flow suites
   gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
-  # generated 214 cases across 12 files -> /app/tests/gen
+  # generated 23 cases across 1 files -> /app/tests/gen
+  # generated 1 CRUD flows -> /app/tests/gen/flows/flows.gen.pipes
 
-  # Run them like any other fixtures
+  # Run the negative matrix like any other fixtures
   test-fixture --target 'tests/gen/*.gen.crust.ts' --threads 8 --timeout 5000
+
+  # Run the generated CRUD flows — the sibling setup module is auto-detected
+  test-pipes --target tests/gen/flows/flows.gen.pipes
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -38,6 +42,24 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
 The `--out` directory is **deleted and recreated on every run** — never edit generated files; change the spec or the setup module and regenerate.
 
+## The regen-and-diff workflow
+
+Because generation is deterministic, the generated directory works like a lockfile: check it in, regenerate on spec changes, and read the diff as a *review artifact*. A new required field shows up as new 400 cases; a loosened `maxLength` shows up as a deleted boundary case. If the diff surprises you, the spec change did something you didn't intend — you caught it before the server did.
+
+```bash
+gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
+git diff --stat tests/gen         # what did the spec change actually change?
+```
+
+In CI, the same idea catches a stale checked-in matrix:
+
+```bash
+crust -c 'gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts'
+git diff --exit-code tests/gen    # fails the job if someone changed the spec without regenerating
+```
+
+Regenerating a spec that predates newer derivation rules yields a **purely additive diff** — existing case names, order and bodies are untouched, so the diff stays reviewable.
+
 ## What gets derived
 
 For every operation the spec documents:
@@ -48,8 +70,102 @@ For every operation the spec documents:
 | **403** as non-member | The op is scope-gated (see `scopeParam` below) and documents 403. An authenticated *outsider* — valid credentials, no membership — makes the call. | `status: 403` |
 | **404** with unknown id | Non-scope-gated ops with path params that document 404 — an authorised caller requests a random uuid. | `status: 404` |
 | **400** per body field | The op has a JSON request body and documents 400. One case per required field *missing*, one per field with the *wrong JSON type*, one per *enum violation*. | `status: 400` and the canonical `{ error, code: "validation", fieldErrors }` body naming the field |
+| **400** per boundary | Same precondition — one case per violated `minLength` / `maxLength` / `minimum` / `maximum` / `pattern`, for required **and** optional fields. | same as above |
+| **400** extra property | The body schema has `additionalProperties: false`. | `status: 400`, `code === "validation"` |
 
 Every 400 case perturbs a **schema-valid base body** — required fields are synthesized from the schema (format-aware: emails, uuids, dates, simple digit-pattern sampling) so exactly one thing is wrong per case. Authz cases (401/403) also carry a valid body, because routes that validate before the auth middleware would otherwise 400 ahead of the status under test.
+
+## The boundary matrix, case by case
+
+Given one schema —
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "kind"],
+  "properties": {
+    "name":     { "type": "string", "minLength": 3, "maxLength": 40 },
+    "kind":     { "type": "string", "enum": ["widget", "gadget"] },
+    "priority": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "sku":      { "type": "string", "pattern": "^[A-Z]{3}-[0-9]{4}$" }
+  }
+}
+```
+
+— the POST operation alone yields this matrix (real case names from a generated run):
+
+```text
+POST /things without credentials -> 401
+POST /things missing required 'name' -> 400
+POST /things wrong type for 'name' -> 400
+POST /things missing required 'kind' -> 400
+POST /things wrong type for 'kind' -> 400
+POST /things invalid enum for 'kind' -> 400
+POST /things too short 'name' -> 400          # minLength: sends a 2-char name
+POST /things too long 'name' -> 400           # maxLength: sends 41 chars
+POST /things below minimum 'priority' -> 400  # optional fields get cases too
+POST /things above maximum 'priority' -> 400
+POST /things pattern violation 'sku' -> 400
+POST /things unexpected extra property -> 400 # additionalProperties: false
+```
+
+The rules that keep the matrix sane:
+
+- Boundary cases run in **fixed per-field order** (too short, too long, below, above, pattern), so regeneration diffs are stable.
+- `maxLength` above 4096 is skipped — checked-in files stay reviewable.
+- `maximum: Number.MAX_SAFE_INTEGER` is treated as an "unbounded" sentinel and skipped.
+- Zod-style nullable wrappers (`anyOf: [X, {type: "null"}]`) are unwrapped, so nullable fields get their boundary cases too.
+- The pattern case is deduped when the wrong-type case already sends an unparseable string.
+- The extra-property case asserts only status + `code === "validation"` — unknown-key naming in `fieldErrors` varies too much by server to pin.
+
+Two practical notes from running these against real servers:
+
+- **Dereference your spec first.** The generator reads `requestBody.content.application/json.schema` directly — a top-level `$ref` there means no base body and no 400/boundary cases for that op (you'll see only the auth/404 cases). If your toolchain emits `$ref`s into `components.schemas`, bundle/inline the spec before feeding it in.
+- **Validate before you look up.** The PATCH/PUT boundary cases hit a *random uuid* with an invalid body and expect `400`. A handler that checks existence first will 404 and fail the case. Spec-conformant servers validate the body before touching storage — the generated matrix enforces that ordering.
+
+## Generated CRUD flows
+
+Unless you pass `--no-flows`, qualifying collection paths also get a flow suite: `--out/flows/flows.gen.pipes` plus a sibling `flows.gen.setup.ts` that `test-pipes` auto-detects — zero extra flags to run. Here's a generated file, line by line:
+
+```bash
+# GENERATED by crust gen-fixtures — DO NOT EDIT.
+# CRUD flows derived from the OpenAPI spec; run with test-pipes (the sibling
+# flows.gen.setup.ts is auto-detected and seeds $GEN_AUTH_HEADER/$GEN_URL_*;
+# capture stages write $GEN_ID_* at run time).
+# NOTE: SQL assertions are not derivable from a spec, so none are emitted —
+# add DB-level checks in a hand-written .pipes file if you need them.
+
+# flow: /things  (create -> read -> update -> delete -> read-after-delete)
+{"name":"gen-value-x","kind":"widget"} | POST $GEN_URL_THINGS -H "$GEN_AUTH_HEADER" | assert (r => r.status === 201) | (r => r.json()) | capture GEN_ID_THINGS (b => b.thing.id)
+GET $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | assert (r => r.status === 200) | (r => r.json()) | assert (j => JSON.stringify(j).includes(process.env.GEN_ID_THINGS ?? " "))
+{"name":"gen-value-x"} | PATCH $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 200
+{} | DELETE $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 204
+GET $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 404
+```
+
+- **Line 1 — create.** The body is the same schema-valid base body the 400 cases perturb. The status comes from the op's lowest documented 2xx. The tail parses the response and `capture`s the new id into `$GEN_ID_THINGS` — the generator derived *where* the id lives (`b.thing.id`) from the POST's 2xx response example/schema.
+- **Line 2 — read.** Interpolates the captured id into the item URL and asserts the id appears in the response body (`capture` values live in `process.env`, which is how a JS predicate reads them).
+- **Line 3 — update.** Prefers PATCH over PUT when both exist; sends a valid partial body.
+- **Line 4 — delete.** Emitted only when the spec documents a DELETE.
+- **Line 5 — tombstone.** The read-after-delete `404` — emitted only when the item GET documents a 404 *and* a DELETE exists.
+
+The generated `flows.gen.setup.ts` adapts your existing setup module — it calls `shared()` and `headersFor(ctx, "member")` to seed `$GEN_AUTH_HEADER`, and `resolvePath` per flow to seed `$GEN_URL_<T>`. Same contract, no extra exports.
+
+**Qualification** — a collection path `P` gets a flow when: it has a POST with an `application/json` request schema and a documented 2xx; an item path `P/{param}` with at least one of GET/PUT/PATCH/DELETE exists; `P` carries no path params beyond the scope param (nested collections are skipped with a stdout notice); and the created id's location is derivable from the POST's 2xx response — the media `example`, else `schema.properties`: top-level `id`, else the first object-valued property containing an `id`. Not derivable → skipped with a notice naming the path.
+
+```bash
+gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts --no-flows   # matrix only
+```
+
+**Wiring flows into the suite** — a flow file is a normal `.pipes` file, so it runs alongside your hand-written ones:
+
+```bash
+# everything at once: hand-written suites AND generated flows
+test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
+```
+
+Each `.pipes` file is hermetic (env snapshotted/restored per file), so generated flows can't leak `$GEN_*` vars into your hand-written suites — and since the spec can't know your table names, add `sql`-assert lines in a hand-written `.pipes` file when you want the DB-level counterpart of a flow.
 
 ## The setup module contract
 
@@ -156,10 +272,11 @@ Plain `test-fixture` fixtures — nothing magic. `--threads`, `--timeout`, `--ba
 ## Tips
 
 - **Descriptions are the trigger.** The 401 derivation keys off the response *description* (`/not authenticated|log in/i`). If your middleware 401s aren't matching, that's the string to fix in the spec.
-- **Run against the real server, not the mock.** The whole point is proving the server rejects; [mock-server](/docs/recipes/mock-server/) accepts anything that routes.
-- **Zero cases for an op means the spec is silent.** Documenting the 400/401/403/404 responses is what buys you the tests.
+- **Run against the real server, not the mock.** The whole point is proving the server rejects; [mock-server](/docs/recipes/mock-server/) accepts anything that routes — unless you boot it with `--validate`, in which case it rejects with `422`, which still isn't your server's documented `400` contract.
+- **Zero cases for an op means the spec is silent.** Documenting the 400/401/403/404 responses — and the `minLength`/`maximum`/`pattern` constraints — is what buys you the tests.
 
 ## Related
 
-- [API smoke tests](/docs/recipes/api-smoke-tests/) — the positive-path counterpart: one-liners, `.pipes` suites, `.crust.ts` fixtures.
+- [API smoke tests](/docs/recipes/api-smoke-tests/) — the positive-path counterpart: one-liners, capture-chained `.pipes` suites, `.crust.ts` fixtures.
+- [Mock server](/docs/recipes/mock-server/) — the spec's other uses: mocking, request validation, and conformance-proxying.
 - [Stress testing](/docs/recipes/stress-testing/) — the same runner at volume.

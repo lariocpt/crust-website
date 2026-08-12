@@ -1,12 +1,12 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Mock server (OpenAPI)
-description: Boot a Bun.serve instance that mocks every operation in an OpenAPI 3.x spec.
+description: Boot a Bun.serve mock from an OpenAPI 3.x spec — stateful CRUD, 422 request validation, and a validation proxy that audits a real backend.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
-**Goal:** stand up a working HTTP mock from a Swagger / OpenAPI 3.x spec — useful for frontend dev before the backend exists, demoing a pipeline, or seeding fixture tests against an upstream you don't want to spin up.
+**Goal:** put an OpenAPI 3.x spec to work as a running server — a mock for frontend dev before the backend exists, a stateful CRUD sandbox, a validator that rejects spec-breaking requests, or a proxy that audits a *real* backend's conformance while your tests run through it.
 
 ## Boot a mock
 
@@ -24,6 +24,13 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
   # Stateful mode — what you POST is what you GET back
   mock-server --swagger ./openapi.yaml --port 4000 --stateful
+
+  # Reject spec-violating requests with 422
+  mock-server --swagger ./openapi.yaml --port 4000 --stateful --validate
+
+  # Validation proxy — forward to a real backend, record violations
+  mock-server --swagger ./openapi.yaml --port 4000 \
+    --proxy http://localhost:8080 --report violations.ndjson
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -52,6 +59,10 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 | `--port N` | `3000` | `0` requests an ephemeral OS-assigned port. |
 | `--host addr` | `0.0.0.0` | Bind address. |
 | `--stateful` | off | In-memory CRUD layer on top of example mode — see below. |
+| `--validate` | off | Check every matched request against the spec; violations answer `422`. Composes with `--stateful`. |
+| `--proxy <upstream>` | off | Validation-proxy mode: forward everything to a real backend, record both-direction violations. Mutually exclusive with `--stateful`. |
+| `--proxy-timeout N` | `30000` | Upstream timeout in ms. |
+| `--report <path>` | off | Append violations as NDJSON as they happen. Requires `--proxy`. |
 
 ## How responses are picked
 
@@ -101,27 +112,149 @@ Example mode replays the same spec example forever — fine for "does the client
 - `PATCH` / `PUT` **merge** the body over the stored item. `DELETE` removes it and returns `204`. Unknown ids are `404`.
 - **Untouched collections keep serving spec examples** — consumers see no change until they write.
 
-A full round trip:
+A full round trip, driven as a crust capture chain — the same vocabulary as your [smoke suites](/docs/recipes/api-smoke-tests/):
 
 ```bash
-mock-server --swagger ./openapi.yaml --port 4000 --stateful &
+mock-server --swagger ./pets-openapi.json --port 4000 --stateful --validate
+```
 
-curl -s -X POST :4000/pets -H 'content-type: application/json' \
-  -d '{"name": "Rex", "tag": "dog"}'
-# → {"id":"1b2e…","name":"Rex","tag":"dog"}   (spec base + your body + id)
+```bash
+crust -c '{"name": "Rex", "tag": "dog"} | POST :4000/pets | assert (r => r.status === 201) | (r => r.json()) | capture PET_ID (p => p.id)
+GET :4000/pets/$PET_ID | (r => r.json()) | assert (p => p.name === "Rex" && p.tag === "dog")
+{"tag": "good dog"} | PATCH :4000/pets/$PET_ID | (r => r.json()) | assert (p => p.tag === "good dog" && p.name === "Rex")
+GET :4000/pets | (r => r.json()) | assert (l => l.items.length === 1)
+{} | DELETE :4000/pets/$PET_ID | expect 204
+GET :4000/pets/$PET_ID | expect 404'
+```
 
-curl -s :4000/pets/1b2e…
-# → the same item back — not the spec example
+Create, capture the generated id, read your own write back, merge a PATCH over it, see it in the collection listing, delete, and hit the tombstone — all against a server that existed for exactly as long as the demo. The mock's stderr tells the same story:
 
-curl -s -X PATCH :4000/pets/1b2e… -H 'content-type: application/json' \
-  -d '{"tag": "good dog"}'
-# → {"id":"1b2e…","name":"Rex","tag":"good dog"}   (merged)
-
-curl -s -X DELETE :4000/pets/1b2e…   # 204
-curl -s :4000/pets/1b2e…             # 404 {"error":"not found"}
+```text
+POST   /pets                        201  1ms
+GET    /pets/52ab6ddb-…             200  0ms
+PATCH  /pets/52ab6ddb-…             200  0ms
+GET    /pets                        200  0ms
+DELETE /pets/52ab6ddb-…             204  0ms
+GET    /pets/52ab6ddb-…             404  0ms
 ```
 
 **When it beats example mode:** any client flow that reads its own writes — create-then-list screens, edit forms, optimistic-UI reconciliation, multi-step wizards, and fixture suites that assert on round-tripped values. Stick with plain example mode when you want deterministic, spec-exact bodies on every request. State lives in memory only; restarting the mock is a clean slate.
+
+> The stored item starts from the POST's 2xx example/schema. If your create responses are *enveloped* (`{"thing": {...}}` rather than the item itself), the stateful layer stores the envelope shape with the generated `id` at the top level — capture `p.id`, not `p.thing.id`, when chaining against the mock.
+
+## Request validation — `--validate`
+
+By default the mock accepts anything that routes (existing suites may rely on that). `--validate` opts in: every matched request is checked against the spec **before** any mock or stateful handling. A violating request answers `422` with the header `x-crust-validation: request` and a violations body. Here's a real one — a POST that breaks four constraints at once:
+
+```bash
+curl -si -X POST :4000/things -H 'content-type: application/json' \
+  -d '{"name":"ab","kind":"sprocket","priority":9,"sku":"bad"}'
+```
+
+```text
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json
+x-crust-validation: request
+```
+
+```json
+{
+  "error": "request validation failed",
+  "violations": [
+    { "pointer": "/name",     "rule": "minLength", "message": "length 2 < minLength 3",
+      "expected": 3, "received": "ab", "location": "body" },
+    { "pointer": "/kind",     "rule": "enum",      "message": "value not in enum",
+      "expected": ["widget", "gadget"], "received": "sprocket", "location": "body" },
+    { "pointer": "/priority", "rule": "maximum",   "message": "9 > maximum 5",
+      "expected": 5, "received": 9, "location": "body" },
+    { "pointer": "/sku",      "rule": "pattern",   "message": "does not match pattern",
+      "expected": "^[A-Z]{3}-[0-9]{4}$", "received": "bad", "location": "body" }
+  ]
+}
+```
+
+Every violation carries a JSON `pointer` into the body (or the param name), the `rule` that fired, a human `message`, `expected`/`received`, and a `location` (`body`/`path`/`query`). One request, every violation named — not just the first.
+
+What is checked: path/query parameters (string values coerced to the declared `integer`/`number`/`boolean` first; `header`/`cookie` params skipped), required query params, `requestBody.required`, unparseable JSON bodies, and JSON body schemas — `type` (incl. 3.1 `["string","null"]`), `required`, `properties`/`items`, `enum`, `nullable`, `anyOf`/`oneOf`/`allOf`, `format` (`uuid`, `email`, `date`, `date-time`, `uri`), `pattern`, `minLength`/`maxLength`, `minimum`/`maximum` (both `exclusive*` forms), `minItems`/`maxItems`.
+
+The governing rule: **a schema the walker can't judge validates successfully.** Unknown formats, uncompilable patterns, unresolvable `$ref`s, and unsupported keywords (`not`, `uniqueItems`, `multipleOf`, and `additionalProperties` — even `false`) never produce a violation — so extra properties are never rejected, and the validator never invents a failure it can't justify. Non-JSON bodies (multipart, form) pass untouched.
+
+`--validate` composes with `--stateful`: an invalid POST answers `422` and **creates nothing** — which is exactly what makes the combination a good stand-in backend for frontend form work. (The mock's `422` is deliberately distinct from your real server's documented `400` contract — [generated negative fixtures](/docs/recipes/gen-fixtures/) still belong against the real thing.)
+
+## Validation proxy — `--proxy <upstream>`
+
+The proxy flips the question. The mock asks "does my client speak the spec?"; the proxy asks "**does my real backend speak the spec?**" — while your existing tests provide the traffic:
+
+```bash
+mock-server --swagger ./openapi.json --port 4000 \
+  --proxy http://localhost:8080 --report violations.ndjson
+```
+
+Every request is forwarded to the upstream (hop-by-hop headers stripped, 3xx passed through untouched) and the upstream's response is returned **as-is** — while both directions are checked against the spec and violations are *recorded, never enforced*. Your test suite doesn't notice the proxy exists; the proxy notices everything:
+
+- **Requests** get the same checks as `--validate` — but a violating request is still forwarded, and recorded with `direction: "request"`.
+- **Responses** are checked for a documented status (exact key, then `NXX` range, then `default` — miss records `undocumented-status`), documented content-type, and JSON body schema conformance.
+- Requests matching **no documented operation** are forwarded anyway and recorded as `undocumented-operation` — your spec's blind spots, enumerated.
+- An unreachable upstream answers `502 {"error": "upstream unreachable", …}` and is *not* recorded — infra failures aren't spec violations.
+
+Run a session through it and the per-request log grows a violations column:
+
+```text
+GET    /things                      200  8ms [1 violation(s)]
+POST   /things                      200  1ms [1 violation(s)]
+POST   /things                      200  1ms [2 violation(s)]
+GET    /internal/metrics            200  0ms [1 violation(s)]
+```
+
+### Reading the findings
+
+Findings are a JSON endpoint on the proxy itself — which means they're pipeable with the same crust vocabulary as everything else:
+
+```bash
+# Summarize a session: rule + direction + where
+GET :4000/__crust/violations | (r => r.json()) \
+  | (v => v.count + " violation(s): " + v.violations.map(x => x.rule + " " + x.direction + " " + (x.pointer ?? x.path)).join(", "))
+# 5 violation(s): type response /items/0/priority, undocumented-status response , minLength request /name, …
+```
+
+The endpoint returns `{count, dropped, violations}` (capped at 1000 in memory, oldest dropped); `DELETE /__crust/violations` clears it between phases. Each recorded violation adds `ts`, `direction`, `method`, `path`, `template`, and (response side) `status` to the validation fields. A real recorded response violation:
+
+```json
+{
+  "pointer": "/items/0/priority",
+  "rule": "type",
+  "message": "expected integer, got string",
+  "expected": "integer",
+  "received": "high",
+  "ts": "2026-08-12T15:52:49.214Z",
+  "direction": "response",
+  "location": "body",
+  "method": "GET",
+  "path": "/things",
+  "template": "/things",
+  "status": 200
+}
+```
+
+That's the drift the type checker can't see: the spec says `priority` is an integer, the server has been sending `"high"` for six months, and every client has quietly coped.
+
+### A conformance gate in CI
+
+`--report` appends each violation as one NDJSON line as it happens — survives a crashed run, greps clean, and turns "run the suite through the proxy" into a pass/fail conformance step:
+
+```bash
+# 1. boot the proxy in front of the service under test
+crust -c 'mock-server --swagger ./openapi.json --port 4000 --proxy http://localhost:8080 --report violations.ndjson' &
+crust -c 'wait :4000/things --timeout 20s'
+
+# 2. run the EXISTING test suite through the proxy
+BASE=http://localhost:4000 crust -c "test-pipes --target 'tests/**/*.pipes'"
+
+# 3. gate: zero recorded violations, or fail with the count
+crust -c 'GET :4000/__crust/violations | (r => r.json()) | assert (v => v.count === 0)'
+```
+
+Step 3's failure message prints the violations object itself, and `violations.ndjson` is the artifact to archive. `--proxy` implies validation of both directions (`--validate` alongside it is accepted, redundant) and is mutually exclusive with `--stateful` — state belongs to the real backend in this mode.
 
 ## Pairing with crust pipelines
 
@@ -160,12 +293,12 @@ The mock is just an HTTP server — drive it with normal crust pipelines.
 Honest about what doesn't work yet:
 
 - Remote `$ref` resolution
-- Request validation (the mock accepts anything that routes — even in stateful mode)
+- `additionalProperties: false` is **not** enforced by `--validate` — extra properties always pass (see the governing rule above)
 - Faker-style data (every `string` is just `"string"` unless the format is known)
 - Hot-reload on spec changes
 
 ## Related
 
-- [API smoke tests](/docs/recipes/api-smoke-tests/) — one-liners, `.pipes` suites and fixtures against the mock.
+- [API smoke tests](/docs/recipes/api-smoke-tests/) — one-liners, capture-chained `.pipes` suites and fixtures against the mock.
 - [Generated negative fixtures](/docs/recipes/gen-fixtures/) — the spec's *other* use: deriving rejection tests (run those against the real server, not the mock).
 - [Stress testing](/docs/recipes/stress-testing/) — `--count` + `--threads` for high-volume runs against the mock.

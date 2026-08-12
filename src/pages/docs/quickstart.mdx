@@ -62,6 +62,8 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   GET :3000/health                  # localhost shorthand
   read fixtures/*.json              # whole-file contents, one item per file
   {"name": "Court"}                 # JSON literal — one parsed item
+  load 30s 100/s                    # paced ticks: 100/s for 30s (load runs)
+  load 10s 50/s, 30s 200/s          # ramp: comma-separated phases, one stream
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -80,6 +82,7 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   GET("http://localhost:3000/health");
   readAll("fixtures/*.json");           // whole files, one item each
   Pipeline.of([{ name: "Court" }]);     // literal item
+  load([{ durMs: 30_000, rps: 100 }]);  // paced LoadTick stream
   ```
   </Fragment>
 </CodeSwitcher>
@@ -122,20 +125,27 @@ Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all wor
 
 Every http verb takes repeatable `-H "Key: value"` flags, and URLs, `-H` values, and JSON literals are `$VAR`/`${VAR}` env-expanded (lambda bodies are **not** — they're JS, use `process.env`). The `:port/path` localhost shorthand works for all verbs, and `parallel N` upstream fans out non-GET verbs too.
 
-## Assertions, concurrency, stats
+## Assertions, concurrency, stats, capture
 
-`expect`, `assert`, `parallel`, and `stats` are shell-line keywords with exact TS-API equivalents.
+`expect`, `assert`, `parallel`, `stats`, and `capture` are shell-line keywords with exact TS-API equivalents.
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
   range(0, 999) | parallel 50 | GET :3000/health | expect 200 | stats
 
+  # expect takes an exact status or a class: 2xx | 3xx | 4xx | 5xx
+  GET :3000/health | expect 2xx
+
   # assert: falsy FAILS the pipeline — and so does an empty upstream
   sql "SELECT count(*)::int AS c FROM users" | assert (r => r.c === 1)
 
   # stats --every N: windowed delta summaries + a {final: true} cumulative one
   range(0, 5999) | parallel 50 | GET :3000/health | stats --every 5
+
+  # capture: write a value into process.env — every LATER line expands $THING_ID
+  {"n": "x"} | POST :3000/things | (r => r.json()) | capture THING_ID (t => t.id)
+  GET :3000/things/$THING_ID | expect 200
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -151,11 +161,16 @@ Every http verb takes repeatable `-H "Key: value"` flags, and URLs, `-H` values,
   expectStage(item => item.status < 300);    // custom predicate
 
   // On mismatch the pipeline rejects with ExpectError { item, index, matcher }
+
+  // capture's TS twin — items pass through, process.env.NAME is written
+  captureEnv("THING_ID", (t: { id: string }) => t.id);
   ```
   </Fragment>
 </CodeSwitcher>
 
 `assert (x => expr)` differs from a lambda (which maps) and from `expect` (statuses only): a falsy result fails the pipeline, and an **empty upstream also fails** ("no items reached") — so a `SELECT` that returns zero rows can't silently pass.
+
+`capture NAME (fn)` writes at **run** time while `$VAR` expands at **parse** time — chaining works *across* lines (REPL, `-c` scripts, `.pipes` files), never within one. A nullish captured value or an empty upstream fails the pipeline immediately. See [API smoke tests](/docs/recipes/api-smoke-tests/) for full CRUD chains.
 
 > `parallel` streams results in **completion order**, not input order — a deliberate contract so downstream windowed stats see a live stream. Sort downstream if you need input order.
 
@@ -261,6 +276,10 @@ Small helpers that work as both pipeline stages and one-shot sources.
 
   sql "select id, email from users limit 5" | (r => r.email)
 
+  # block until a target answers (2xx or TCP connect) — exit 1 on timeout
+  wait :3001/health --timeout 40s --interval 2s
+  wait port:5432 --timeout 30s
+
   bundle src/index.ts --outfile dist/app.js --minify
   ```
   </Fragment>
@@ -350,13 +369,14 @@ See the [API smoke tests recipe](/docs/recipes/api-smoke-tests/) for a full `.pi
 
 ### gen-fixtures
 
-Generates the negative-test matrix (401/403/404 + per-field 400s with schema-valid base bodies) from an OpenAPI spec, as `.crust.ts` files runnable by `test-fixture`.
+Generates the negative-test matrix (401/403/404 + per-field 400s and boundary violations with schema-valid base bodies) from an OpenAPI spec, as `.crust.ts` files runnable by `test-fixture` — plus capture-chained CRUD flow `.pipes` suites for qualifying collections.
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
   gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
   test-fixture --target 'tests/gen/*.gen.crust.ts' --threads 8
+  test-pipes --target tests/gen/flows/flows.gen.pipes    # generated CRUD flows
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -385,6 +405,9 @@ Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
   mock-server --swagger https://petstore3.swagger.io/api/v3/openapi.json --port 4747
   mock-server --swagger ./spec.json --port 0 --host 127.0.0.1     # OS-assigned port
   mock-server --swagger ./openapi.yaml --port 4000 --stateful     # in-memory CRUD
+  mock-server --swagger ./openapi.yaml --port 4000 --validate     # 422 on spec-violating requests
+  mock-server --swagger ./openapi.yaml --port 4000 \
+    --proxy http://localhost:8080 --report violations.ndjson      # conformance-audit a real backend
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -473,4 +496,5 @@ The line editor runs in raw mode (TTY-only). Reading from a pipe also works — 
 ## Next
 
 - **[Recipes](/docs/recipes/)** — focused, end-to-end workflows.
+- **[Agent skills](/docs/agent-skills/)** — `skills install` teaches Claude-based agents everything on this page.
 - **[Intro](/docs/intro/)** — back to the mental model.

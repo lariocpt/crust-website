@@ -1,18 +1,18 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: API smoke tests
-description: read-glob → POST → expect one-liners, .pipes suites with DB asserts, and .crust.ts fixtures — API smoke tests at three altitudes.
+description: One-liners, capture-chained CRUD .pipes suites with DB asserts and negative blocks, and .crust.ts fixtures — API smoke tests at three altitudes.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
-**Goal:** point a folder of JSON fixtures at an HTTP service and confirm every one comes back `2xx`. Pure pipeline — no test runner, no framework.
+**Goal:** prove an HTTP service does what it claims — creates persist, reads round-trip, deletes tombstone, and the API *rejects* what it must — with pipelines instead of a test framework.
 
 This recipe works at three altitudes. Pick by how much each test needs to know:
 
 - **One shell line** — the whole test is self-contained: body, headers, one assertion.
-- **A `.pipes` file** — a *suite* of shell lines, run in order, with SQL/`assert` lines checking what earlier lines did.
-- **`.crust.ts` fixtures (the TypeScript API)** — a single test needs multi-step logic: reuse a value from the response, generated tokens, per-fixture setup/teardown.
+- **A `.pipes` file** — a *suite* of shell lines, run in order, chained with `capture`, with SQL/`assert` lines checking what earlier lines did.
+- **`.crust.ts` fixtures (the TypeScript API)** — a single test needs multi-step logic: generated tokens, per-fixture setup/teardown, structural matchers.
 
 ## The one-liner
 
@@ -35,58 +35,98 @@ This recipe works at three altitudes. Pick by how much each test needs to know:
   </Fragment>
 </CodeSwitcher>
 
-`read fixtures/*.json` is a pipeline with one item per matched file — the file's **whole contents**, which `POST :3000/users` sends as the request body, per item. `expect 201` drains the stream and fails the pipeline (exit 1) naming the mismatch count. Add auth with `-H` (URLs, `-H` values and JSON literals are `$VAR` env-expanded):
+`read fixtures/*.json` is a pipeline with one item per matched file — the file's **whole contents**, which `POST :3000/users` sends as the request body, per item. `expect 201` drains the stream and fails the pipeline (exit 1) naming the mismatch count. When the exact status doesn't matter, class matchers work too: `expect 2xx` accepts anything 200–299 (`3xx`, `4xx`, `5xx` likewise). Add auth with `-H` (URLs, `-H` values and JSON literals are `$VAR` env-expanded):
 
 ```bash
 read fixtures/*.json | POST $BASE/api/users -H "authorization: Bearer $TOKEN" | expect 201
 ```
 
-## A typical fixture folder
+Reach for the one-liner when the test has no memory: fire, assert, done. The moment a later request needs a value from an earlier response, move up a rung.
 
-```text
-fixtures/
-├── users/
-│   ├── happy-path.json
-│   ├── min-fields.json
-│   └── extreme-name.json
-└── auth/
-    ├── refresh.json
-    └── revoke.json
+## Request chaining — `capture`
+
+`capture NAME (fn)` runs `fn` on each item and writes the result to `process.env.NAME`. Because crust parses each line right before running it, **every later line sees `$NAME`** — in the REPL, in `crust -c` scripts, and in `.pipes` files. That one primitive turns "a pile of one-liners" into "a flow".
+
+The classic first capture is the auth token:
+
+```bash
+crust -c '{"email": "smoke@test.dev", "password": "pw-123456"} | POST :3000/api/login | assert (r => r.status === 200) | (r => r.json()) | capture TOKEN (b => b.token)
+GET :3000/api/things -H "authorization: Bearer $TOKEN" | expect 200'
 ```
 
-Each `.json` is the body for one request. Use as many as you like — every file becomes one item in the pipeline.
+Line 1 logs in, parses the body, and captures the token. Line 2 — a *separate* pipeline — expands `$TOKEN` like any env var. Captures happen at **run** time and `$VAR` expansion at **parse** time, which is why chaining works *across* lines but never within one.
+
+Two honesty rules keep captures from lying to you:
+
+- A **nullish captured value fails the pipeline immediately** — `crust: capture TOKEN: got undefined from (b => b.token) — item 1` — instead of expanding to a baffling `""` three lines later.
+- An **empty upstream also fails**. A capture that captured nothing is a bug, not a pass.
+
+Mind the names: capturing into `TOKEN`, `BASE`, or `PATH` overwrites those for the rest of the run.
+
+### A full CRUD flow in `-c`
+
+```bash
+crust -c '{"email": "smoke@test.dev", "password": "pw-123456"} | POST :3000/api/login | (r => r.json()) | capture TOKEN (b => b.token)
+{"name": "Court", "kind": "widget"} | POST :3000/api/things -H "authorization: Bearer $TOKEN" | assert (r => r.status === 201) | (r => r.json()) | capture THING_ID (b => b.thing.id)
+GET :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 200
+{"priority": 5} | PATCH :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 200
+{} | DELETE :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 204
+GET :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 404'
+```
+
+Create → read → update → delete → read-after-delete, and the tombstone 404 is asserted too. `crust -c` is **fail-fast** across lines: the first failing line stops the script and its exit code is the script's exit code.
+
+When a flow like this stops being a throwaway and becomes *the* smoke suite, don't leave it in a shell script — that's exactly what `.pipes` files are for.
 
 ## A suite of one-liners — `.pipes` files
 
-When one line isn't enough but every *test* still is, put the lines in a `.pipes` file: **one shorthand fixture pipeline per line**, `#` comments, blank lines skipped. `test-pipes` runs them **sequentially, in order** — on purpose, so a `sql | assert` line can check what the previous request wrote:
+A `.pipes` file is **one shorthand fixture pipeline per line** — `#` comments and blank lines skipped. `test-pipes` runs the lines **sequentially, in order** — on purpose, because suites interleave requests with `capture` chains and `sql`/`assert` lines about what the previous line did:
 
 ```bash
-# smoke.pipes — request, then prove the DB saw it
-{"name": "Court", "floors": 3} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | expect 201
-sql "SELECT count(*)::int AS c FROM buildings WHERE name = 'Court'" | assert (r => r.c === 1)
+# smoke.pipes — CRUD with chaining, DB cross-checks, and a negative block
+{"name": "Court", "kind": "widget"} | POST $BASE/api/things -H "authorization: Bearer $TOKEN" | assert (r => r.status === 201) | (r => r.json()) | capture THING_ID (b => b.thing.id)
+GET $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 200
 
-# JSON-literal bodies are env-expanded too
-{"name": "Annex", "parent": "$BUILDING_ID"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | expect 201
+# prove the write actually landed — not just that the API said 201
+sql "SELECT count(*)::int AS c FROM things WHERE name = 'Court'" | assert (r => r.c === 1)
 
-# reads work as fixtures as well
-GET $BASE/api/buildings -H "authorization: Bearer $TOKEN" | (r => r.json()) | assert (b => b.items.length >= 2)
+{"priority": 5} | PATCH $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | (r => r.json()) | assert (b => b.thing.priority === 5)
+{} | DELETE $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 204
+GET $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 404
+sql "SELECT count(*)::int AS c FROM things WHERE id = $1" "$THING_ID" | assert (r => r.c === 0)
+
+# negative block — the API must REJECT these
+GET $BASE/api/things | expect 401
+{"kind": "widget"} | POST $BASE/api/things -H "authorization: Bearer $TOKEN" | expect 400
+GET $BASE/api/things/00000000-0000-0000-0000-000000000000 -H "authorization: Bearer $TOKEN" | expect 404
 ```
+
+The negative block is not decoration. A suite that only checks happy paths will pass against a server whose auth middleware silently fell off. `expect 401` on the bare-request line is the test that catches it. If your API scopes resources per tenant, add the 403 line too — an authenticated outsider hitting a resource they have no membership in — or better, [generate the whole rejection matrix from your spec](/docs/recipes/gen-fixtures/).
+
+Run one file, or a tree of them:
 
 ```bash
 test-pipes --target smoke.pipes
 test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
 ```
 
-`--bail` stops at the first failing line; `--timeout <ms>` fails any line that runs longer. Exit codes: `0` all pass, `1` any fail, `2` no files / bad args.
+```text
+  PASS  tests/smoke.pipes:2  {"name": "Court", "kind": "widget"} | POST $BASE/api/things -H "authorization: Bear  (2.0ms)
+  PASS  tests/smoke.pipes:3  GET $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 200  (0.5ms)
+  ...
+1 file(s): 8 pass, 0 fail
+```
+
+`--bail` stops at the first failing line (across files); `--timeout <ms>` fails any line that runs longer. Exit codes: `0` all pass, `1` any fail, `2` no files / bad args. Quote the glob so *crust* expands it, not your outer shell.
 
 Two behaviors that keep suites honest:
 
 - `assert (x => expr)` fails on falsy — **and on an empty upstream**. A `SELECT` that matches zero rows streams zero items, so a per-item predicate would never run; `assert` turns that into a failure ("no items reached") instead of a silent pass.
-- Env expansion covers URLs, `-H` values, JSON literals and `sql` args. Lambda and `assert` bodies are JS — use `process.env.TOKEN` there, not `$TOKEN`.
+- Env expansion covers URLs, `-H` values, JSON literals and `sql` args (SQL positionals `$1`/`$2` survive — a digit can't start an env var name). Lambda and `assert` bodies are JS — use `process.env.TOKEN` there, not `$TOKEN`.
 
 ### The setup module
 
-Before a file runs, its setup module is imported and its **default export awaited**: pass `--setup <module>`, or drop a sibling `<name>.setup.ts` next to the `.pipes` file. Setup seeds `process.env` — that's where `$BASE` and `$TOKEN` come from:
+Before a file runs, its setup module is imported and its **default export awaited**: pass `--setup <module>`, or drop a sibling `<name>.setup.ts` next to the `.pipes` file — it's picked up automatically. Setup seeds `process.env`; that's where `$BASE` and `$TOKEN` come from:
 
 ```ts
 // smoke.setup.ts — sibling of smoke.pipes, picked up automatically
@@ -101,11 +141,27 @@ export default async () => {
 };
 ```
 
-Each `.pipes` file runs in a fresh, hermetic context — builtin fns like `sql` are registered, but your `init.ts` and aliases are not. A `.pipes` file must behave the same on every machine.
+```bash
+test-pipes --target smoke.pipes                       # sibling smoke.setup.ts auto-detected
+test-pipes --target smoke.pipes --setup ./seed.ts     # or explicit
+```
+
+### Per-file hermeticity
+
+Each `.pipes` file gets a fresh pipeline context: builtin fns (`sql`, …) registered, but no `init.ts` and no shared alias state. And `process.env` is **snapshotted before setup and restored when the file finishes** — setup vars and captures never leak across files, between runs, or into your interactive session. Two files can both capture `$THING_ID` without stepping on each other, and a `.pipes` file behaves the same on every machine. That's a contract, not an accident.
+
+### Wiring it into CI
+
+The suite is one command with meaningful exit codes, so CI wiring is two lines — [`wait`](/docs/recipes/dev-tail/) replaces the curl-sleep retry loop:
+
+```bash
+crust -c 'wait :3000/api/health --timeout 40s --interval 2s'
+crust -c "test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000"
+```
 
 ## The TypeScript API — `.crust.ts` fixtures
 
-Reach for `.crust.ts` fixtures when a single test stops being expressible as one line: a value from the response feeds a later step, tokens are generated per fixture, matchers assert on structure, or the fixture needs its own `setup`/`teardown`. Each file is a normal TypeScript module that default-exports a fixture (or array) with `input` and `output`. Fields can be values *or* zero-argument thunks (resolved + awaited at run time). In `output`, a function with at least one parameter is a predicate matcher over the actual value.
+Reach for `.crust.ts` fixtures when a single test stops being expressible as one line: tokens are generated per fixture, matchers assert on structure, or the fixture needs its own `setup`/`teardown`. Each file is a normal TypeScript module that default-exports a fixture (or array) with `input` and `output`. Fields can be values *or* zero-argument thunks (resolved + awaited at run time). In `output`, a function with at least one parameter is a predicate matcher over the actual value.
 
 `setup()`'s return value flows through the whole fixture: `input`/`output`
 may be functions of the context, unary `input` field functions receive it,
@@ -173,7 +229,7 @@ expectStage("2xx");                      // class — "2xx" | "3xx" | "4xx" | "5
 expectStage((res) => res.status < 300);  // custom predicate
 ```
 
-> The TS-test ecosystem owns the name `expect`. Crust exports it as `expectStage` to avoid collisions when you `import { expect as expectStage }` in test files. From the shell line it's just `expect 201`.
+> The TS-test ecosystem owns the name `expect`. Crust exports it as `expectStage` to avoid collisions when you `import { expect as expectStage }` in test files. From the shell line it's just `expect 201` — or `expect 2xx`.
 
 ## Cross-check the database after a request
 
@@ -221,6 +277,8 @@ The shape: `POST → JSON → id → query → row → predicate`. Each `|` is o
   ```
   </Fragment>
 </CodeSwitcher>
+
+In a `.pipes` suite the same cross-check is cleaner — `capture` the id, then a plain `sql` line with the id as a parameter (see the suite above). The lambda-interpolation form is for one-liners, where there's no later line to expand `$THING_ID` into.
 
 ### Using the `sql` builtin directly
 
@@ -298,6 +356,7 @@ Exit codes:
 
 ## Related
 
-- [Generated negative fixtures](/docs/recipes/gen-fixtures/) — derive the 401/403/404/400 matrix from your OpenAPI spec instead of writing it.
-- [Stress testing](/docs/recipes/stress-testing/) — same fixtures, `--count N` for percentile reports, `--timeout`/`--bail` for long runs.
+- [Generated negative fixtures](/docs/recipes/gen-fixtures/) — derive the 401/403/404/400 matrix *and* capture-chained CRUD flow suites from your OpenAPI spec instead of writing them.
+- [Stress testing](/docs/recipes/stress-testing/) — same fixtures, `--count N` for percentile reports; `load` scenarios for paced runs.
+- [CI load gates](/docs/recipes/ci-load-gates/) — turn `stats` summaries into pass/fail thresholds.
 - [Mock server](/docs/recipes/mock-server/) — point smoke tests at an OpenAPI mock when the real service isn't running.
