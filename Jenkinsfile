@@ -108,5 +108,17 @@ pipeline {
                 '''
             }
         }
+        stage('Links') {
+            steps {
+                sh '''
+                    set -eu
+                    # Dogfood: the freshly published crust binary lives on the
+                    # apps plane, which is bind-mounted into this container —
+                    # no install step. Fails the build on any dead link,
+                    # redirect chain, or missing anchor on the LIVE site.
+                    /srv/apps/tools/crust/latest/crust -c "verify-web-links --base-url $SITE_URL --concurrency 8 --timeout 15000"
+                '''
+            }
+        }
     }
 }
