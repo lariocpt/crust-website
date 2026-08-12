@@ -82,6 +82,8 @@ OG images get an extra check: every `<meta property="og:image" content="...">` U
 | `--no-redirect-warnings` | off | Treat `3xx` chains as informational. |
 | `--include-external` | off | Also status-check external links. |
 | `--exclude <substring>` | — | Skip URLs containing the substring (repeatable). For subtrees that redirect by design — a WooCommerce `/checkout/` with an empty cart, a `/wp-admin/` login wall. |
+| `--max-pages N` | 0 (unlimited) | Stop fetching after N URLs; the report says how many discovered URLs were left unchecked. Safety valve for crawls that explode (Woo filter URLs). |
+| `--no-progress` | off | Silence the 5-second progress heartbeat on stderr. |
 | `--json` | off | Emit a machine-readable report on stdout. |
 
 ## Meta fixtures
