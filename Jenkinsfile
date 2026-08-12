@@ -85,7 +85,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json | head -1)+$(git rev-parse --short HEAD).${BUILD_NUMBER}"
+                    VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' package.json | head -1)+$(git rev-parse --short HEAD).${BUILD_NUMBER}"
                     /opt/publish/bin/site-deploy "$SITE" "$WORKSPACE/dist" "$VERSION"
                 '''
             }
