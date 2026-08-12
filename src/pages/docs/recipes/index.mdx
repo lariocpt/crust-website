@@ -9,35 +9,35 @@ import RecipeCard from '../../../components/RecipeCard.astro';
 Hand-picked workflows. Each recipe is a focused scenario — what the goal is, the crust pipeline that gets you there, and the knobs you'll want to turn.
 
 <div class="recipe-grid">
-  <RecipeCard href="/docs/recipes/stress-testing" title="Stress testing" tag="Load">
+  <RecipeCard href="/docs/recipes/stress-testing/" title="Stress testing" tag="Load">
     Shell-native load one-liners, soak runs with windowed <code>stats --every</code> summaries, and <code>test-fixture --count N --threads M</code> with randomized inputs and p50/p95/p99 reports.
   </RecipeCard>
 
-  <RecipeCard href="/docs/recipes/mock-server" title="OpenAPI mock server" tag="HTTP">
+  <RecipeCard href="/docs/recipes/mock-server/" title="OpenAPI mock server" tag="HTTP">
     Boot a <code>Bun.serve</code> mock from any OpenAPI 3.x spec. Example-first response selection — or <code>--stateful</code> in-memory CRUD that remembers what you POST.
   </RecipeCard>
 
-  <RecipeCard href="/docs/recipes/gen-fixtures" title="Generated negative fixtures" tag="HTTP">
+  <RecipeCard href="/docs/recipes/gen-fixtures/" title="Generated negative fixtures" tag="HTTP">
     <code>gen-fixtures --swagger spec.json</code> derives the 401/403/404 and per-field 400 matrix from your OpenAPI spec — <code>.crust.ts</code> files the fixture runner executes.
   </RecipeCard>
 
-  <RecipeCard href="/docs/recipes/verify-web-links" title="Verify web links + SEO" tag="HTTP">
+  <RecipeCard href="/docs/recipes/verify-web-links/" title="Verify web links + SEO" tag="HTTP">
     Crawl from <code>sitemap.xml</code>, catch broken links and dead anchors, flag redirect chains, and diff Open Graph / meta tags against <code>.crust.ts</code> fixtures.
   </RecipeCard>
 
-  <RecipeCard href="/docs/recipes/api-smoke-tests" title="API smoke tests" tag="HTTP">
+  <RecipeCard href="/docs/recipes/api-smoke-tests/" title="API smoke tests" tag="HTTP">
     <code>read fixtures/*.json | POST :3000/users | expect 201</code> — one line per test, or whole <code>.pipes</code> suites with <code>sql</code>/<code>assert</code> DB checks between requests.
   </RecipeCard>
 
-  <RecipeCard href="/docs/recipes/dev-tail" title="One dev tail" tag="Dev">
+  <RecipeCard href="/docs/recipes/dev-tail/" title="One dev tail" tag="Dev">
     <code>procs(&#123;web, api, tsc&#125;)</code> merges every dev process into one tagged stream — pipe it through <code>pino-pretty</code> for a single coherent log.
   </RecipeCard>
 
-  <RecipeCard href="/docs/recipes/log-mining" title="Log mining" tag="Files">
+  <RecipeCard href="/docs/recipes/log-mining/" title="Log mining" tag="Files">
     Recursive globs piped through grep, lambdas, and TS predicates for fast forensic queries.
   </RecipeCard>
 
-  <RecipeCard href="/docs/recipes/heap-snapshots" title="Heap snapshots during testing" tag="Profiling">
+  <RecipeCard href="/docs/recipes/heap-snapshots/" title="Heap snapshots during testing" tag="Profiling">
     A Bun <code>[test].preload</code> that writes a <code>.heapsnapshot</code> and prints rss / heap / top-classes after every <code>bun test</code>.
   </RecipeCard>
 </div>

@@ -11,9 +11,9 @@ const isActive = (prefix: string) =>
 			<span class="wordmark">crust</span>
 		</a>
 		<nav class="nav" aria-label="Primary">
-			<a href="/docs/intro" class:list={[{ active: isActive('/docs') && !isActive('/docs/recipes') }]}>Docs</a>
-			<a href="/docs/quickstart" class:list={[{ active: path === '/docs/quickstart' }]}>Quickstart</a>
-			<a href="/docs/recipes" class:list={[{ active: isActive('/docs/recipes') }]}>Recipes</a>
+			<a href="/docs/intro/" class:list={[{ active: isActive('/docs') && !isActive('/docs/recipes') }]}>Docs</a>
+			<a href="/docs/quickstart/" class:list={[{ active: path === '/docs/quickstart' }]}>Quickstart</a>
+			<a href="/docs/recipes/" class:list={[{ active: isActive('/docs/recipes') }]}>Recipes</a>
 		</nav>
 	</div>
 </header>

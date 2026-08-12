@@ -156,10 +156,10 @@ Plain `test-fixture` fixtures — nothing magic. `--threads`, `--timeout`, `--ba
 ## Tips
 
 - **Descriptions are the trigger.** The 401 derivation keys off the response *description* (`/not authenticated|log in/i`). If your middleware 401s aren't matching, that's the string to fix in the spec.
-- **Run against the real server, not the mock.** The whole point is proving the server rejects; [mock-server](/docs/recipes/mock-server) accepts anything that routes.
+- **Run against the real server, not the mock.** The whole point is proving the server rejects; [mock-server](/docs/recipes/mock-server/) accepts anything that routes.
 - **Zero cases for an op means the spec is silent.** Documenting the 400/401/403/404 responses is what buys you the tests.
 
 ## Related
 
-- [API smoke tests](/docs/recipes/api-smoke-tests) — the positive-path counterpart: one-liners, `.pipes` suites, `.crust.ts` fixtures.
-- [Stress testing](/docs/recipes/stress-testing) — the same runner at volume.
+- [API smoke tests](/docs/recipes/api-smoke-tests/) — the positive-path counterpart: one-liners, `.pipes` suites, `.crust.ts` fixtures.
+- [Stress testing](/docs/recipes/stress-testing/) — the same runner at volume.

@@ -80,7 +80,7 @@ The same pipeline can be expressed either at the **shell line** or as a **`.ts` 
   </Fragment>
 </CodeSwitcher>
 
-That first pipeline is a `range` source, then a `parallel` operator, then `GET` (HTTP verb), then `expect` and `stats` (sinks) — none of which are real binaries on your PATH, but all of which compose under `|` as if they were. The third line is pure POSIX shell. The fourth mixes a SQL row source with an `assert` predicate. The fifth is a complete HTTP fixture on one line — a JSON-literal body, an env-expanded auth header, a status assertion — the **shorthand fixture grammar** that [test-pipes](/docs/recipes/api-smoke-tests) runs from `.pipes` files. **Each form has the same observable behavior** — pick the surface that fits where you're working.
+That first pipeline is a `range` source, then a `parallel` operator, then `GET` (HTTP verb), then `expect` and `stats` (sinks) — none of which are real binaries on your PATH, but all of which compose under `|` as if they were. The third line is pure POSIX shell. The fourth mixes a SQL row source with an `assert` predicate. The fifth is a complete HTTP fixture on one line — a JSON-literal body, an env-expanded auth header, a status assertion — the **shorthand fixture grammar** that [test-pipes](/docs/recipes/api-smoke-tests/) runs from `.pipes` files. **Each form has the same observable behavior** — pick the surface that fits where you're working.
 
 ## The mental model
 
@@ -174,6 +174,6 @@ The TypeScript surface is identical between the REPL and a script — the differ
 
 ## Next
 
-- **[Quickstart](/docs/quickstart)** — every command crust ships, shell-line + TS-API side by side.
-- **[npm packages](/docs/npm-packages)** — globally-installed packages become pipeline stages automatically.
-- **[DB drivers](/docs/db-drivers)** — pointing `sql` at Postgres, MySQL, SQLite.
+- **[Quickstart](/docs/quickstart/)** — every command crust ships, shell-line + TS-API side by side.
+- **[npm packages](/docs/npm-packages/)** — globally-installed packages become pipeline stages automatically.
+- **[DB drivers](/docs/db-drivers/)** — pointing `sql` at Postgres, MySQL, SQLite.
