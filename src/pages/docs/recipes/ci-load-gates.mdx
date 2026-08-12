@@ -196,7 +196,7 @@ perf-gate:
   runs-on: ubuntu-latest
   steps:
     - uses: actions/checkout@v4
-    - run: ./scripts/install-crust.sh          # or bake crust into your runner image
+    - run: ./scripts/install-crust             # or bake crust into your runner image
     - run: bun run start &                     # boot the service under test
     - run: crust -c 'wait :3000/health --timeout 40s --interval 2s'
     - name: load gate
