@@ -119,6 +119,24 @@ load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 2
 
 Line 1 pushes 100 requests through and prints a summary nobody judges. Line 2 is the measured run. Fail-fast still applies: if the warmup line itself errors (service down), the gate never runs and the step fails honestly.
 
+## Hung upstreams fail fast — `--timeout`
+
+A service that stops *answering* without going down is the one failure a gate can't threshold its way out of: hung requests pin the `parallel` pool, the run never drains, and the CI step sits there until the job's own timeout kills it — with no summary and no artifact. Put a per-request `--timeout <dur>` on the verb stage and the wedge becomes an ordinary red gate instead:
+
+```bash
+load 30s 100/s | parallel 50 | GET :3000/health --timeout 2s | stats \
+  | assert (s => !s.status["0"]) \
+  | assert (s => s.p95 < 200)
+```
+
+Each timed-out request yields a `{status: 0, timedOut: true}` record, so it lands in the histogram under `"0"` — the `!s.status["0"]` assert catches it (a plain connection refusal is also `status: 0`, so that assert already belongs in a strict gate), the run completes on schedule, and `--out` still writes the artifact. Against a fully wedged endpoint the failure reads:
+
+```text
+crust: assert: item 1 failed (s => !s.status["0"]) — got {"count":20,"wallMs":2401,"rps":8,"status":{"0":20},"p50":500.8,"p95":501.5,"p99":501.5,"meanMs":500.8}
+```
+
+Exit 1, seconds after the run's scheduled end — not whenever the CI runner loses patience. (`--timeout` here is the per-request http bound with `ms`/`s`/`m` durations — distinct from the `test-fixture`/`test-pipes` runner flag of the same name, which takes integer ms per fixture/line.)
+
 ## Gating a soak — `--every` windows
 
 For long runs, gate each window so degradation fails the job *when it happens*, not twenty minutes later at the final summary. Window objects carry `window: N` and the cumulative one carries `final: true`; guard the predicate with those keys to scope it:

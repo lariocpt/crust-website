@@ -119,10 +119,11 @@ test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
 
 `--bail` stops at the first failing line (across files); `--timeout <ms>` fails any line that runs longer. Exit codes: `0` all pass, `1` any fail, `2` no files / bad args. Quote the glob so *crust* expands it, not your outer shell.
 
-Two behaviors that keep suites honest:
+Three behaviors that keep suites honest:
 
 - `assert (x => expr)` fails on falsy — **and on an empty upstream**. A `SELECT` that matches zero rows streams zero items, so a per-item predicate would never run; `assert` turns that into a failure ("no items reached") instead of a silent pass.
 - Env expansion covers URLs, `-H` values, JSON literals and `sql` args (SQL positionals `$1`/`$2` survive — a digit can't start an env var name). Lambda and `assert` bodies are JS — use `process.env.TOKEN` there, not `$TOKEN`.
+- Any http line can carry a **per-request `--timeout <dur>`** (`ms`/`s`/`m`): `GET $BASE/api/things/$THING_ID --timeout 2s | expect 200`. A hung endpoint fails *that line* with `GET <url>: timed out after 2000ms` instead of hanging the run — sharper than the runner's own `--timeout <ms>` flag, which is a per-line wall clock in integer ms. Typo'd `--flags` on http stages are loud errors, so a misspelling can't silently drop the bound.
 
 ### The setup module
 
@@ -218,6 +219,48 @@ output: {
 ```
 
 Predicates can also be `async` — useful for cross-checking against a database or another service.
+
+## Response-shape conformance — `output.schema`
+
+`schema` is a **reserved key** in `output`: give it an inline JSON Schema (dereference `$ref`s first) and the response body must conform. Field matchers assert *values*; `schema` asserts the *shape* — every required key, every type, every format, in one declaration:
+
+```ts
+// fixtures/create-user.schema.crust.ts
+export default {
+  name: "POST /users response conforms to the user schema",
+  input: {
+    method: "POST",
+    url: "http://localhost:3000/users",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Lario", email: "lario@example.com" }),
+  },
+  output: {
+    status: 201,
+    schema: {
+      type: "object",
+      required: ["id", "name", "email", "tier", "createdAt"],
+      properties: {
+        id: { type: "string", format: "uuid" },
+        name: { type: "string", minLength: 3 },
+        email: { type: "string", format: "email" },
+        tier: { type: "string", enum: ["free", "pro"] },
+        createdAt: { type: "string", format: "date-time" },
+      },
+    },
+  },
+};
+```
+
+Violations fail the fixture with **per-field JSON-pointer paths** — every violation named, not just the first. Here's a deliberately broken schema/response pair failing:
+
+```text
+  FAIL  users.crust.ts  schema violation shows pointer paths  (6.1ms)
+    output.data/plan: expected "required: missing required property 'plan'", got undefined
+    output.data/name: expected "minLength: length 2 < minLength 3", got "xy"
+    output.data/email: expected "format: does not match format 'email'", got "not-an-email"
+```
+
+The validator is the [mock-server's](/docs/recipes/mock-server/) subset walker, so its never-invent-a-violation rule applies: unknown keywords pass, `additionalProperties: false` is not enforced, and a schema it can't judge validates successfully. Functions inside a `schema` object are never invoked — it's data, not matchers. [gen-fixtures](/docs/recipes/gen-fixtures/) emits this key automatically for any case whose expected status documents a response schema.
 
 ## Status matchers via `expectStage`
 

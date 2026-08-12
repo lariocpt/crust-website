@@ -1,12 +1,12 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Mock server (OpenAPI)
-description: Boot a Bun.serve mock from an OpenAPI 3.x spec — stateful CRUD, 422 request validation, and a validation proxy that audits a real backend.
+description: Boot a Bun.serve mock from an OpenAPI 3.x spec — stateful CRUD persisted to sqlite/postgres, seedable boot data, envelope-aware round-trips, 422 request validation, and a validation proxy that audits a real backend.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
-**Goal:** put an OpenAPI 3.x spec to work as a running server — a mock for frontend dev before the backend exists, a stateful CRUD sandbox, a validator that rejects spec-breaking requests, or a proxy that audits a *real* backend's conformance while your tests run through it.
+**Goal:** put an OpenAPI 3.x spec to work as a running server — a mock for frontend dev before the backend exists, a stateful CRUD sandbox that can persist to sqlite/postgres and seed itself, a validator that rejects spec-breaking requests, or a proxy that audits a *real* backend's conformance while your tests run through it.
 
 ## Boot a mock
 
@@ -24,6 +24,9 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
   # Stateful mode — what you POST is what you GET back
   mock-server --swagger ./openapi.yaml --port 4000 --stateful
+
+  # Persistent CRUD — the sqlite file survives restarts; seed data on first boot
+  mock-server --swagger ./openapi.yaml --port 4000 --state ./mock.sqlite --seed ./seed.json
 
   # Reject spec-violating requests with 422
   mock-server --swagger ./openapi.yaml --port 4000 --stateful --validate
@@ -58,9 +61,11 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 | `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. Swagger 2.0 specs are auto-converted to OpenAPI 3.x. |
 | `--port N` | `3000` | `0` requests an ephemeral OS-assigned port. |
 | `--host addr` | `0.0.0.0` | Bind address. |
-| `--stateful` | off | In-memory CRUD layer on top of example mode — see below. |
+| `--stateful` | off | CRUD layer on top of example mode — in-memory unless `--state` is given. See below. |
+| `--state <path\|url>` | off | Persist the CRUD store in SQL: bare path or `sqlite://` URL for sqlite, `postgres://` / `postgresql://` for Postgres (any other scheme exits `2`). Implies `--stateful`; excludes `--proxy`. |
+| `--seed <file.json>` | off | Insert boot data into **empty** collections — `{ "/api/things": [ {…} ] }`. Implies `--stateful`; excludes `--proxy`. |
 | `--validate` | off | Check every matched request against the spec; violations answer `422`. Composes with `--stateful`. |
-| `--proxy <upstream>` | off | Validation-proxy mode: forward everything to a real backend, record both-direction violations. Mutually exclusive with `--stateful`. |
+| `--proxy <upstream>` | off | Validation-proxy mode: forward everything to a real backend, record both-direction violations. Mutually exclusive with `--stateful` / `--state` / `--seed`. |
 | `--proxy-timeout N` | `30000` | Upstream timeout in ms. |
 | `--report <path>` | off | Append violations as NDJSON as they happen. Requires `--proxy`. |
 
@@ -138,9 +143,113 @@ DELETE /pets/52ab6ddb-…             204  0ms
 GET    /pets/52ab6ddb-…             404  0ms
 ```
 
-**When it beats example mode:** any client flow that reads its own writes — create-then-list screens, edit forms, optimistic-UI reconciliation, multi-step wizards, and fixture suites that assert on round-tripped values. Stick with plain example mode when you want deterministic, spec-exact bodies on every request. State lives in memory only; restarting the mock is a clean slate.
+**When it beats example mode:** any client flow that reads its own writes — create-then-list screens, edit forms, optimistic-UI reconciliation, multi-step wizards, and fixture suites that assert on round-tripped values. Stick with plain example mode when you want deterministic, spec-exact bodies on every request. State lives in memory by default (restart = clean slate) — add `--state` (next section) to persist it.
 
-> The stored item starts from the POST's 2xx example/schema. If your create responses are *enveloped* (`{"thing": {...}}` rather than the item itself), the stateful layer stores the envelope shape with the generated `id` at the top level — capture `p.id`, not `p.thing.id`, when chaining against the mock.
+### Entity envelopes round-trip
+
+Plenty of APIs don't return the entity bare — the create response wraps it: `{"thing": {"id": …, "name": …}}`. The stateful layer **detects and honors** that envelope. When the POST's 201 example (or schema-synthesized body) is an object with exactly one object-valued property and no top-level `id`, the store keeps the *bare* entity and re-wraps per direction: POST responds with the envelope around the real stored entity, item GET/PATCH/PUT re-wrap the same way, and request bodies arriving wrapped are unwrapped before storing. So the natural capture — the same one you'd write against the real API — works against the mock:
+
+```bash
+crust -c '{"thing": {"name": "Crusty", "kind": "widget"}} | POST :4000/api/things | assert (r => r.status === 201) | (r => r.json()) | capture TID (t => t.thing.id)
+GET :4000/api/things/$TID | (r => r.json()) | assert (t => t.thing.name === "Crusty" && t.thing.id === process.env.TID)
+{"thing": {"kind": "gadget"}} | PATCH :4000/api/things/$TID | (r => r.json()) | assert (t => t.thing.kind === "gadget" && t.thing.name === "Crusty")'
+```
+
+Line 1 captures `t.thing.id` — the wrapped id — and it's the *real* stored id, so lines 2 and 3 round-trip. Detection is deterministic and **flat on ambiguity**: two object-valued properties, a top-level `id`, or a non-object body all mean the plain flat behavior above, unchanged. Flat specs capture `p.id` exactly as before.
+
+## Persistent state and seeding — `--state`, `--seed`
+
+`--state <path|url>` moves the CRUD store out of memory and into SQL via `Bun.SQL` — a bare file path or `sqlite://` URL for sqlite, a `postgres://` / `postgresql://` URL for Postgres. State **survives restarts** and is **shared cross-process**: every request reads through to the database (no cache), writes are single-statement upserts, last write wins. `--seed <file.json>` inserts boot data. Both imply `--stateful` and exclude `--proxy`.
+
+The seed file maps collection path templates to entity arrays — items without an `id` get a uuid:
+
+```json
+{
+  "/api/things": [
+    { "id": "seed-1", "name": "Seeded Thing", "kind": "widget" },
+    { "name": "No id — gets a uuid", "kind": "gadget" }
+  ]
+}
+```
+
+```bash
+mock-server --swagger ./things-openapi.json --port 4000 --state ./mock.sqlite --seed ./seed.json
+```
+
+```text
+mock-server: 5 route(s) from ./things-openapi.json
+mock-server: listening on http://0.0.0.0:4000 (stateful) (state: sqlite) (seeded 2)
+```
+
+Seeding is **empty-only and restart-safe**: collections that already have rows are skipped entirely, so re-booting over a persistent store never duplicates and never clobbers accumulated state. Seeded collections count as written — their lists serve the seeded data, not spec examples. Unknown collection keys (no matching route) print a boot warning and are skipped; an unreadable or invalid seed file exits `1`.
+
+### A full session, restart included
+
+Everything from the envelope section works the same — the store just outlives the process now. Create, capture, verify, then *restart the mock* and read the same id back:
+
+```bash
+# terminal A
+mock-server --swagger ./things-openapi.json --port 4000 --state ./mock.sqlite --seed ./seed.json
+```
+
+```bash
+# terminal B — a real session against it
+{"thing": {"name": "Crusty", "kind": "widget"}} | POST :4000/api/things | assert (r => r.status === 201) | (r => r.json()) | capture TID (t => t.thing.id)
+GET :4000/api/things | (r => r.json()) | assert (l => l.items.length === 3)   # 2 seeded + 1 created
+
+# Ctrl-C terminal A, boot it again — same --state, same --seed
+# boot line now says: (state: sqlite) (seeded 0)   ← seed skipped, collection has rows
+
+GET :4000/api/things/$TID | (r => r.json()) | assert (t => t.thing.name === "Crusty")
+```
+
+The re-boot seeds nothing (`seeded 0`) and the entity created before the restart is still there, envelope intact. Because the state is plain SQL, it's also *shareable*: two mock processes on different ports backed by the same `--state` serve the same entities.
+
+### The table contract
+
+The store is one table, created idempotently at open, and its shape is a **public contract** — assert on it from anything that speaks SQL:
+
+```sql
+CREATE TABLE IF NOT EXISTS crust_mock_state (
+  collection TEXT NOT NULL,   -- the collection path template, e.g. '/api/things'
+  id         TEXT NOT NULL,   -- the entity id (stringified)
+  doc        TEXT,            -- sqlite: JSON text | postgres: JSONB
+  updated_at TEXT NOT NULL,   -- sqlite: ISO 8601 | postgres: timestamptz DEFAULT now()
+  PRIMARY KEY (collection, id)
+)
+```
+
+`doc` is always the **bare** entity — envelopes are stripped before storage. Query it with `json_extract(doc, '$.name')` on sqlite, `doc->>'name'` on postgres.
+
+### SQL-assert the mock from a `.pipes` suite
+
+crust's `sql` builtin speaks sqlite URLs (`DATABASE_URL=sqlite://./mock.sqlite` just works), which closes a loop: a `.pipes` suite can create against the mock over HTTP and then assert *the mock's own database* — the same POST-then-`sql` pattern you'd run against a real backend, end to end before that backend exists:
+
+```bash
+# mock-state.pipes
+{"thing": {"name": "Piper", "kind": "widget"}} | POST $BASE/api/things | assert (r => r.status === 201) | (r => r.json()) | capture TID (t => t.thing.id)
+GET $BASE/api/things/$TID --timeout 2s | expect 200
+sql "SELECT json_extract(doc, '$.name') AS name FROM crust_mock_state WHERE collection = '/api/things' AND id = '$TID'" | assert (r => r.name === "Piper")
+{} | DELETE $BASE/api/things/$TID | expect 204
+sql "SELECT count(*) AS c FROM crust_mock_state WHERE collection = '/api/things' AND id = '$TID'" | assert (r => Number(r.c) === 0)
+```
+
+```ts
+// mock-state.setup.ts — sibling, auto-detected by test-pipes
+export default async () => {
+  process.env.BASE = "http://localhost:4000";
+  process.env.DATABASE_URL = "sqlite://./mock.sqlite";
+};
+```
+
+```bash
+test-pipes --target mock-state.pipes
+#   PASS  mock-state.pipes:2  {"thing": {"name": "Piper", "kind": "widget"}} | POST $BASE/api/things | …
+#   ...
+# 1 file(s): 5 pass, 0 fail
+```
+
+The `$.name` inside the sql string survives env expansion (`.` can't start a var name), `$TID` expands from the capture, and the DELETE line's follow-up proves the row is really gone — not just 404-ing. Against postgres, swap the two sql lines to `doc->>'name'` and `count(*)::int AS c`.
 
 ## Request validation — `--validate`
 

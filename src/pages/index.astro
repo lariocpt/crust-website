@@ -54,8 +54,9 @@ import FeatureCard from '../components/FeatureCard.astro';
 				<FeatureCard icon="🌐" title="OpenAPI mock, validator & proxy">
 					<p>
 						<code>mock-server --swagger ./openapi.yaml</code> — spec-driven mock with
-						<code>--stateful</code> CRUD, <code>--validate</code> 422s, and a
-						<code>--proxy</code> mode that audits a real backend's conformance.
+						envelope-aware <code>--stateful</code> CRUD — persistent via <code>--state</code>
+						sqlite/postgres, seedable via <code>--seed</code> — <code>--validate</code> 422s,
+						and a <code>--proxy</code> mode that audits a real backend's conformance.
 					</p>
 				</FeatureCard>
 				<FeatureCard icon="🤖" title="Agent skills, embedded">
@@ -109,8 +110,9 @@ import FeatureCard from '../components/FeatureCard.astro';
 				<a class="recipe" href="/docs/recipes/mock-server/">
 					<h3>OpenAPI mock server</h3>
 					<p>
-						Boot a Bun.serve mock from any Swagger / OpenAPI 3.x spec — front-end before
-						backend.
+						Boot a Bun.serve mock from any Swagger / OpenAPI 3.x spec — stateful CRUD
+						that persists to sqlite/postgres, seeds itself on first boot, and
+						round-trips enveloped entities.
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>

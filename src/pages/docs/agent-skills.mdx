@@ -28,9 +28,10 @@ crust-load-testing
     performance regression gates in CI, or "is this endpoint fast/degrading" questions.
 crust-mock-server
     Mock an API from an OpenAPI spec with crust mock-server — example-first responses,
-    in-memory stateful CRUD, request validation with 422s, and validation-proxy mode that
-    checks a REAL API's spec conformance. Use for mocking backends, frontend dev without a
-    server, contract/conformance testing, or checking whether an API matches its openapi.json.
+    stateful CRUD (in-memory or persisted to sqlite/postgres with --state, seedable with
+    --seed), request validation with 422s, and validation-proxy mode that checks a REAL
+    API's spec conformance. Use for mocking backends, frontend dev without a server,
+    contract/conformance testing, or checking whether an API matches its openapi.json.
 crust-pipelines
     Compose crust shell pipelines — sources (range, glob, read, tail, GET, load, procs, sql),
     transforms (TS lambdas, HTTP verbs, parallel), assertions (expect, assert), and request
@@ -51,7 +52,7 @@ crust-procs
 | `crust-pipelines` | Write and debug pipeline lines: pick the right source, compose lambdas/verbs/`parallel`, chain requests with `capture`, know where `$VAR` expands. The foundation the other four assume. | [Quickstart](/docs/quickstart/) |
 | `crust-api-testing` | Build `.pipes` suites with capture chaining and SQL cross-checks, write `.crust.ts` fixtures, and derive negative matrices + CRUD flows from an OpenAPI spec. | [API smoke tests](/docs/recipes/api-smoke-tests/), [gen-fixtures](/docs/recipes/gen-fixtures/) |
 | `crust-load-testing` | Shape `load` scenarios and ramps, size `parallel` pools, read drop reports, and wire `stats`/`assert` threshold gates with baselines into CI. | [Stress testing](/docs/recipes/stress-testing/), [CI load gates](/docs/recipes/ci-load-gates/) |
-| `crust-mock-server` | Boot spec mocks, use stateful CRUD for round-trip flows, interpret `--validate` 422s, and run conformance audits with `--proxy`. | [Mock server](/docs/recipes/mock-server/) |
+| `crust-mock-server` | Boot spec mocks, use stateful CRUD for round-trip flows (persisted with `--state`, seeded with `--seed`, envelope-aware), interpret `--validate` 422s, and run conformance audits with `--proxy`. | [Mock server](/docs/recipes/mock-server/) |
 | `crust-procs` | Orchestrate processes with `ready:`/`after:`/`restart:`, tail merged logs, and gate CI on `wait`. | [One dev tail](/docs/recipes/dev-tail/) |
 
 ## Install

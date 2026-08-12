@@ -75,6 +75,21 @@ For every operation the spec documents:
 
 Every 400 case perturbs a **schema-valid base body** — required fields are synthesized from the schema (format-aware: emails, uuids, dates, simple digit-pattern sampling) so exactly one thing is wrong per case. Authz cases (401/403) also carry a valid body, because routes that validate before the auth middleware would otherwise 400 ahead of the status under test.
 
+### Response schemas ride along — `output.schema`
+
+When the spec documents a **response schema** for a case's expected status, the generated fixture also carries it as `output.schema` — the reserved [test-fixture key](/docs/recipes/api-smoke-tests/) that checks response-body conformance with per-field pointer failures. A spec whose `400` response documents the `{error, code, fieldErrors}` shape yields cases like:
+
+```ts
+output: {
+  status: 400,
+  data: (d: { code?: string; fieldErrors?: Record<string, unknown> }) =>
+    d.code === "validation" && d.fieldErrors !== undefined && "name" in d.fieldErrors,
+  schema: {"type":"object","required":["error","code","fieldErrors"],"properties":{"error":{"type":"string"},"code":{"type":"string","enum":["validation"]},"fieldErrors":{"type":"object"}}},
+},
+```
+
+So the matrix doesn't just prove the server *rejects* — it proves the rejection *body* matches the documented error contract. Cases whose expected status documents no schema (a bare `401: { description: … }`) get no `schema` key — nothing is invented.
+
 ## The boundary matrix, case by case
 
 Given one schema —

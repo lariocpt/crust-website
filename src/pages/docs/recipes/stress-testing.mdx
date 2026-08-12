@@ -92,9 +92,44 @@ headroom; `parallel 8` guarantees drops. Start there, and let the drop
 report tell you if you guessed low — a nonzero `dropped` count with a healthy
 server means the *pool* is the bottleneck, not the service.
 
-One honest ceiling: Bun's ~1ms sleep floor makes roughly 500–1000 ticks/s per
-process the realistic maximum. This is CI smoke-load and soak tooling, not a
-distributed load rig.
+The generator itself doesn't cap the rate: each wakeup emits **every due
+slot** as a batch, so tick emission sustains 5000/s and beyond (verified in
+crust's own suite). Your real ceiling is downstream — the `parallel` pool ×
+service time. A due slot is dropped only when consumer backpressure has let
+it go stale beyond `maxLagMs` (default 1s; TS API `load(phases, {maxLagMs})`)
+or the phase clock ran out — catch-up of due slots is the schedule, never a
+burst beyond it. Still single-process CI smoke-load and soak tooling, not a
+distributed load rig:
+
+```bash
+load 5s 400/s | parallel 100 | GET :3000/health --timeout 2s | expect 200 | stats
+# {"count":2000,"wallMs":4999,"rps":400,"status":{"200":2000},"p50":0.2,"p95":0.6,"p99":1.2,"meanMs":0.2}
+```
+
+400/s offered, 400/s measured — the pool, not the pacing, is what you size.
+
+### Guarding against a hung upstream — `--timeout`
+
+A load run has one failure mode worse than drops: an upstream that stops
+answering but keeps the sockets open. Without a bound, every hung request
+pins a `parallel` worker forever — the pool wedges, every later slot goes
+stale, and the run stalls instead of finishing. `--timeout <dur>`
+(durations `ms`/`s`/`m`) bounds **every request the stage makes**:
+
+```bash
+load 2s 20/s | parallel 10 | GET :3000/export --timeout 500ms | stats
+# {"count":40,"wallMs":2457,"rps":16,"status":{"0":40},"p50":500.8,"p95":502.8,"p99":503.5,"meanMs":501}
+```
+
+Against an endpoint that never responds, the run still *completes*: each
+worker cycles every 500ms, and every timed-out request yields a
+`{status: 0, timedOut: true, ms, url}` record — it lands in the stats
+histogram under `"0"`, fails `expect 200`, and the `timedOut` flag
+distinguishes it from a connection refusal (also `status: 0`, no flag).
+This is a **per-request** bound on http stages — not to be confused with
+`test-fixture`/`test-pipes` `--timeout` (integer ms, per fixture/line).
+Typo'd `--flags` on http stages are loud errors, so a misspelled
+`--timeuot` can't silently run unbounded.
 
 ## Soak testing — `stats --every N`
 
