@@ -8,6 +8,21 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
 **Goal:** push a single fixture (or a glob of fixtures) at high volume with varied inputs, then read the latency distribution out of a JSON or Markdown report.
 
+## The one-liner (read paths)
+
+For a plain GET hammer, skip fixtures entirely — the load stages are shell-native:
+
+```bash
+range(0, 999) | parallel 50 | GET :3000/health | expect 200 | stats
+# {"count":1000,"wallMs":2188,"rps":457,"status":{"200":1000},"p50":53,"p95":66.2,"p99":126.7,"meanMs":53.6}
+```
+
+`parallel N` sets the fan-out for the next http stage, `GET` fires one timed
+request per upstream item, `expect NNN` fails the pipeline (exit 1) naming
+the mismatch count, and `stats` yields one summary with real latency
+percentiles, rps and a status histogram. For write paths and DB-verified
+flows, use fixtures below.
+
 ## The shape of it
 
 `--count N` runs every matched fixture N times. Combine with `--threads M` for concurrency. When `N > 1` the report adds a stress block per fixture: `p50`, `p95`, `p99`, mean, min, max, plus the status-code distribution. Each result is tagged with its `iter` index so failures point at the offending iteration.

@@ -25,6 +25,10 @@ Hand-picked workflows. Each recipe is a focused scenario — what the goal is, t
     <code>fixtures/*.json | POST :3000/users | expect 201</code>. Globs → HTTP → assertions in one line.
   </RecipeCard>
 
+  <RecipeCard href="/docs/recipes/dev-tail" title="One dev tail" tag="Dev">
+    <code>procs(&#123;web, api, tsc&#125;)</code> merges every dev process into one tagged stream — pipe it through <code>pino-pretty</code> for a single coherent log.
+  </RecipeCard>
+
   <RecipeCard href="/docs/recipes/log-mining" title="Log mining" tag="Files">
     Recursive globs piped through grep, lambdas, and TS predicates for fast forensic queries.
   </RecipeCard>

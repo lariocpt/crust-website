@@ -52,6 +52,13 @@ Each `.json` is the body for one request. Use as many as you like — every file
 
 For anything with auth headers, generated tokens, or schema-shape assertions, switch to a `.crust.ts` fixture file. Each file default-exports an object with `input` and `output`. Fields can be values *or* zero-argument thunks (resolved + awaited at run time). In `output`, a function with at least one parameter is a predicate matcher over the actual value.
 
+`setup()`'s return value flows through the whole fixture: `input`/`output`
+may be functions of the context, unary `input` field functions receive it,
+and every matcher gets it as a second argument. Matchers may be **async** —
+the runner awaits them, so asserting the DB side effect of a request is one
+`await` away (stick to Bun builtins like `Bun.SQL` inside fixtures; the
+compiled runner doesn't resolve third-party npm packages).
+
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash

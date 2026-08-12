@@ -1,0 +1,46 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: One dev tail
+description: Merge every dev process — app server, bundler, watcher — into a single tagged, pretty stream.
+---
+
+**Goal:** run the whole dev stack with one command and read one coherent log,
+instead of three terminals fighting for attention.
+
+## The shape of it
+
+`procs({name: "command", …})` spawns each command and streams
+`{ proc, stream, line }` for every stdout/stderr line (plus an exit marker),
+merged as lines arrive. Children die with the pipeline — Ctrl-C stops the lot.
+
+```bash
+procs({web: "bun run dev:web", api: "bun api.ts", tsc: "tsc -b --watch"}) \
+  | (l => l.proc + " | " + l.line)
+```
+
+## With pino-pretty
+
+If your services log NDJSON, normalize each line and hand the merged stream
+to `pino-pretty` — plain lines from bundlers/watchers get wrapped, structured
+lines pass through with an `app` tag:
+
+```bash
+procs({web: "LOG_FORMAT=json bun run dev", tsc: "tsc -b --watch"}) \
+  | (l => { let o = null; try { o = JSON.parse(l.line); } catch (e) {} \
+      return JSON.stringify(o && o.msg !== undefined \
+        ? Object.assign(o, { app: l.proc }) \
+        : { level: l.stream === "stderr" ? 50 : 30, time: Date.now(), msg: l.line, app: l.proc }); }) \
+  | node_modules/.bin/pino-pretty --colorize --singleLine --messageFormat "[{app}] {msg}" --ignore app
+```
+
+Every line arrives timestamped, colorized by level, tagged with its app —
+structured fields from your server logs render as inline JSON context.
+
+## Knobs
+
+- One process crashing does **not** kill the others; you get an
+  `exited with code N` line and the rest keep streaming.
+- `stream` is `"stdout" | "stderr" | "exit"` — route stderr to error level in
+  your normalizer (but downgrade `$ command` echo lines from script runners).
+- `FORCE_COLOR=0` is set for children so ANSI noise doesn't corrupt JSON
+  parsing; let pino-pretty re-colorize at the end of the pipe.
