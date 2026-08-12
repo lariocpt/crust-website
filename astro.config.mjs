@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
+import sitemap from '@astrojs/sitemap';
 
 // https://astro.build/config
 export default defineConfig({
@@ -12,7 +13,7 @@ export default defineConfig({
 	// `new URL(Astro.url.pathname, Astro.site)` and that throws on an undefined base, so the
 	// whole build fails rather than merely emitting a wrong canonical tag.
 	site: process.env.SITE_URL ?? 'https://crust.in.drlario.org',
-	integrations: [mdx()],
+	integrations: [mdx(), sitemap()],
 	markdown: {
 		shikiConfig: {
 			theme: 'github-dark',
