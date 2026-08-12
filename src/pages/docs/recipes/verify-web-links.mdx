@@ -57,6 +57,13 @@ All four behaviors are on by default. Each has a `--no-*` opt-out.
 
 External (off-origin) links are skipped by default. Pass `--include-external` to status-check them (never recursed).
 
+Some URLs redirect *because the site is working* — WooCommerce bounces an empty-cart `/checkout/` to `/cart/`, `/wp-admin/` bounces to the login page. Exclude those subtrees instead of silencing all redirect warnings:
+
+```bash
+crust -c "verify-web-links --base-url https://shop.example.com \
+  --exclude /checkout/ --exclude /wp-admin/"
+```
+
 OG images get an extra check: every `<meta property="og:image" content="...">` URL is fetched and the response content-type must start with `image/`.
 
 ## Flags
@@ -74,6 +81,7 @@ OG images get an extra check: every `<meta property="og:image" content="...">` U
 | `--no-anchors` | off | Skip `#fragment` validation. |
 | `--no-redirect-warnings` | off | Treat `3xx` chains as informational. |
 | `--include-external` | off | Also status-check external links. |
+| `--exclude <substring>` | — | Skip URLs containing the substring (repeatable). For subtrees that redirect by design — a WooCommerce `/checkout/` with an empty cart, a `/wp-admin/` login wall. |
 | `--json` | off | Emit a machine-readable report on stdout. |
 
 ## Meta fixtures
