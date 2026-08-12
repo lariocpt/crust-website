@@ -35,7 +35,7 @@ import InstallBlock from './InstallBlock.astro';
 			<pre class="demo-pre"><code><span class="p">$</span> range(0, 10000) <span class="op">|</span> parallel 100 <span class="op">|</span> GET <span class="s">:3000/health</span> <span class="op">|</span> expect 200 <span class="op">|</span> stats
 <span class="c"># &#123; count: 10001, durationMs: 814, p50: 5, p95: 17, p99: 41 &#125;</span>
 
-<span class="p">$</span> fixtures/<span class="g">*.json</span> <span class="op">|</span> POST <span class="s">:3000/users</span> <span class="op">|</span> expect 201
+<span class="p">$</span> read fixtures/<span class="g">*.json</span> <span class="op">|</span> POST <span class="s">:3000/users</span> <span class="op">|</span> expect 201
 <span class="p">$</span> <span class="g">**/*.log</span> <span class="op">|</span> (l <span class="op">=&gt;</span> l.includes(<span class="s">'ERROR'</span>)) <span class="op">|</span> wc -l
 <span class="p">$</span> sql <span class="s">"select email from users limit 5"</span> <span class="op">|</span> (r <span class="op">=&gt;</span> r.email)</code></pre>
 		</div>

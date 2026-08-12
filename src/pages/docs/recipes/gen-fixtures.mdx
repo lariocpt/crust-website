@@ -1,0 +1,165 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Generated negative fixtures
+description: Derive the 401/403/404/400 test matrix from your OpenAPI spec — gen-fixtures writes .crust.ts files, test-fixture runs them.
+---
+
+import CodeSwitcher from '../../../components/CodeSwitcher.astro';
+
+**Goal:** stop hand-writing the boring-but-critical rejection tests. If your OpenAPI spec documents what the server must *reject*, `gen-fixtures` can derive the whole negative matrix — unauthenticated, wrong-scope, unknown-id, and per-field validation cases — as `.crust.ts` files that `test-fixture` runs like any other fixture.
+
+## The shape of it
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # Spec in, one <tag>.gen.crust.ts per OpenAPI tag out
+  gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
+  # generated 214 cases across 12 files -> /app/tests/gen
+
+  # Run them like any other fixtures
+  test-fixture --target 'tests/gen/*.gen.crust.ts' --threads 8 --timeout 5000
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Programmatic — regenerate as part of a CI step
+  import { generateFixtures } from "crust/genFixtures";
+
+  const { outDir, files, totalCases } = await generateFixtures({
+    swagger: "./openapi.json",          // URL or path; Swagger 2.0 auto-converted
+    out: "tests/gen",
+    setup: "./tests/gen-setup.ts",
+  });
+  console.log(`${totalCases} cases in ${files.length} files -> ${outDir}`);
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+The `--out` directory is **deleted and recreated on every run** — never edit generated files; change the spec or the setup module and regenerate.
+
+## What gets derived
+
+For every operation the spec documents:
+
+| Case | When it's emitted | Asserts |
+|---|---|---|
+| **401** without credentials | The op documents a *middleware* 401 — a `401` response whose description matches `/not authenticated\|log in/i`. Public endpoints (login documents 401 for bad credentials) get no case. | `status: 401` |
+| **403** as non-member | The op is scope-gated (see `scopeParam` below) and documents 403. An authenticated *outsider* — valid credentials, no membership — makes the call. | `status: 403` |
+| **404** with unknown id | Non-scope-gated ops with path params that document 404 — an authorised caller requests a random uuid. | `status: 404` |
+| **400** per body field | The op has a JSON request body and documents 400. One case per required field *missing*, one per field with the *wrong JSON type*, one per *enum violation*. | `status: 400` and the canonical `{ error, code: "validation", fieldErrors }` body naming the field |
+
+Every 400 case perturbs a **schema-valid base body** — required fields are synthesized from the schema (format-aware: emails, uuids, dates, simple digit-pattern sampling) so exactly one thing is wrong per case. Authz cases (401/403) also carry a valid body, because routes that validate before the auth middleware would otherwise 400 ahead of the status under test.
+
+## The setup module contract
+
+Generated files are **app-agnostic**: they import only from your `--setup` module. It carries every app-specific detail — how to authenticate, what "scope" means, where the API lives. Required exports:
+
+| Export | Contract |
+|---|---|
+| `shared(): Promise<Ctx>` | Promise-cached scenario factory (users, roles, ids). Wired as every fixture's `setup`, so it **must cache** — build once on first call, return the same promise afterwards (safe under `--threads`). It must also be **lazy**: no side effects at import time, because the generator imports the module at generation time just to read the scope config. |
+| `headersFor(ctx, role)` | Request headers for `"member"` (clears both auth and scope gates) or `"outsider"` (authenticated, no membership in the shared scope). Generated code never calls it with `"none"`. |
+| `resolvePath(ctx, template)` | Takes the raw path template with `{param}` placeholders, substitutes scope params from `ctx`, fills any other `{param}` with a random uuid, and prefixes the API base URL. Returns the absolute request URL. |
+| `scopeParam: string \| null` | The template param name that marks a path as scope-gated (e.g. `"buildingId"`). An op is scope-gated when its path's *first* template param has this name. `null` disables 403 derivation. |
+| `scopeRoots?: string[]` | Optional path prefixes (e.g. `"/api/buildings"`) whose immediately following first template param is the scope id even under a different name (`/api/buildings/{id}`). |
+| `JSON_HEADERS` | Plain unauthenticated JSON headers, used for the 401 cases. |
+
+A minimal real module:
+
+```ts
+// tests/gen-setup.ts
+const BASE = process.env.BASE ?? "http://localhost:3000";
+
+export const JSON_HEADERS = { "content-type": "application/json" };
+export const scopeParam = "buildingId";
+export const scopeRoots = ["/api/buildings"];
+
+// Promise-cached: every generated fixture shares ONE scenario.
+let scenario: Promise<{
+  buildingId: string;
+  memberToken: string;
+  outsiderToken: string;
+}> | null = null;
+
+export function shared() {
+  scenario ??= (async () => {
+    const member = await signupAndLogin("member@gen.test");
+    const building = await createBuilding(member.token);
+    const outsider = await signupAndLogin("outsider@gen.test"); // no membership
+    return {
+      buildingId: building.id,
+      memberToken: member.token,
+      outsiderToken: outsider.token,
+    };
+  })();
+  return scenario;
+}
+
+type Ctx = Awaited<ReturnType<typeof shared>>;
+
+export function headersFor(ctx: Ctx, role: "none" | "member" | "outsider") {
+  if (role === "none") return JSON_HEADERS;
+  const token = role === "member" ? ctx.memberToken : ctx.outsiderToken;
+  return { ...JSON_HEADERS, authorization: `Bearer ${token}` };
+}
+
+export function resolvePath(ctx: Ctx, template: string) {
+  const path = template
+    .replace("{buildingId}", ctx.buildingId)
+    .replace(/\{\w+\}/g, () => crypto.randomUUID()); // unknown ids -> 404 bait
+  return `${BASE}${path}`;
+}
+```
+
+The import specifier in generated files is rewritten relative to `--out`, so a path-like `--setup` works from anywhere; a bare package specifier is kept as-is.
+
+## What a generated file looks like
+
+```ts
+// GENERATED by crust gen-fixtures — DO NOT EDIT.
+import { JSON_HEADERS, headersFor, resolvePath, shared } from "../gen-setup.ts";
+
+type Ctx = Awaited<ReturnType<typeof shared>>;
+
+export default [
+  {
+    name: "POST /api/buildings without credentials -> 401",
+    setup: shared,
+    input: (ctx: Ctx) => ({
+      url: resolvePath(ctx, "/api/buildings"),
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: "{\"name\":\"gen-value-x\"}",
+    }),
+    output: { status: 401 },
+  },
+  {
+    name: "POST /api/buildings missing required 'name' -> 400",
+    setup: shared,
+    input: (ctx: Ctx) => ({
+      url: resolvePath(ctx, "/api/buildings"),
+      method: "POST",
+      headers: headersFor(ctx, "member"),
+      body: "{}",
+    }),
+    output: {
+      status: 400,
+      data: (d: { code?: string; fieldErrors?: Record<string, unknown> }) =>
+        d.code === "validation" && d.fieldErrors !== undefined && "name" in d.fieldErrors,
+    },
+  },
+];
+```
+
+Plain `test-fixture` fixtures — nothing magic. `--threads`, `--timeout`, `--bail`, and report formats all apply.
+
+## Tips
+
+- **Descriptions are the trigger.** The 401 derivation keys off the response *description* (`/not authenticated|log in/i`). If your middleware 401s aren't matching, that's the string to fix in the spec.
+- **Run against the real server, not the mock.** The whole point is proving the server rejects; [mock-server](/docs/recipes/mock-server) accepts anything that routes.
+- **Zero cases for an op means the spec is silent.** Documenting the 400/401/403/404 responses is what buys you the tests.
+
+## Related
+
+- [API smoke tests](/docs/recipes/api-smoke-tests) — the positive-path counterpart: one-liners, `.pipes` suites, `.crust.ts` fixtures.
+- [Stress testing](/docs/recipes/stress-testing) — the same runner at volume.

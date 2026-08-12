@@ -18,6 +18,28 @@ procs({web: "bun run dev:web", api: "bun api.ts", tsc: "tsc -b --watch"}) \
   | (l => l.proc + " | " + l.line)
 ```
 
+## Object specs — per-proc env and auto-restart
+
+A spec value can be an object instead of a bare command string:
+`{cmd, env?, restart?}`.
+
+```bash
+procs({
+  web: {cmd: "bun run dev:web", env: {PORT: "3001", LOG_FORMAT: "json"}},
+  api: {cmd: "bun api.ts", env: {PORT: "3002"}, restart: true},
+  tsc: "tsc -b --watch"
+}) | (l => l.proc + " | " + l.line)
+```
+
+- `env` — extra environment for **that process only**, merged over the
+  inherited environment. Two services fighting over `PORT` stop being a
+  reason for two terminals.
+- `restart: true` — respawn on unexpected exit, with backoff starting at
+  250ms and doubling to a 2s cap. You'll see `restarting in 250ms` on the
+  `exit` stream between attempts. A **user kill** (Ctrl-C / SIGTERM) never
+  respawns — restart is for crashy dev servers, not for fighting your own
+  shutdown.
+
 ## With pino-pretty
 
 If your services log NDJSON, normalize each line and hand the merged stream
@@ -39,7 +61,8 @@ structured fields from your server logs render as inline JSON context.
 ## Knobs
 
 - One process crashing does **not** kill the others; you get an
-  `exited with code N` line and the rest keep streaming.
+  `exited with code N` line and the rest keep streaming (add
+  `restart: true` to its spec to respawn it automatically).
 - `stream` is `"stdout" | "stderr" | "exit"` — route stderr to error level in
   your normalizer (but downgrade `$ command` echo lines from script runners).
 - `FORCE_COLOR=0` is set for children so ANSI noise doesn't corrupt JSON

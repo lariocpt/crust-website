@@ -21,14 +21,17 @@ The same pipeline can be expressed either at the **shell line** or as a **`.ts` 
   # 1. Load-test a health endpoint
   range(0, 10000) | parallel 100 | GET :3000/health | expect 200 | stats
 
-  # 2. Smoke-test against fixtures on disk
-  fixtures/*.json | POST :3000/users | (r => r.status === 201)
+  # 2. Smoke-test against fixtures on disk — read yields file CONTENTS
+  read fixtures/*.json | POST :3000/users | expect 201
 
   # 3. Pure POSIX shell still works
   **/*.log | grep ERROR | wc -l
 
-  # 4. SQL rows as a streaming source
-  sql "select email from users limit 5" | (r => r.email)
+  # 4. SQL rows as a streaming source — assert fails on falsy OR empty
+  sql "select email from users limit 5" | assert (r => r.email.includes("@"))
+
+  # 5. A whole HTTP fixture on one line: JSON body, header, status assert
+  {"name": "Court"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | expect 201
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -44,10 +47,9 @@ The same pipeline can be expressed either at the **shell line** or as a **`.ts` 
     .to(stats());
 
   // 2.
-  await glob("fixtures/*.json")
-    .pipe(async (p) => Bun.file(p).text())
+  await readAll("fixtures/*.json")
     .pipe(POST("http://localhost:3000/users"))
-    .pipe((r) => r.status === 201)
+    .pipe(expectStage(201))
     .collect();
 
   // 3.
@@ -61,13 +63,24 @@ The same pipeline can be expressed either at the **shell line** or as a **`.ts` 
   // 4.
   await Pipeline.of([])
     .pipe(() => Bun.sql`select email from users limit 5`)
-    .pipe((r) => r.email)
+    .pipe((r) => {
+      if (!r.email.includes("@")) throw new Error("bad email");
+      return r;
+    })
+    .collect();
+
+  // 5.
+  await Pipeline.of([{ name: "Court" }])
+    .pipe(POST(`${process.env.BASE}/api/buildings`, {
+      headers: { authorization: `Bearer ${process.env.TOKEN}` },
+    }))
+    .pipe(expectStage(201))
     .collect();
   ```
   </Fragment>
 </CodeSwitcher>
 
-That first pipeline is a `range` source, then a `parallel` operator, then `GET` (HTTP verb), then `expect` and `stats` (sinks) — none of which are real binaries on your PATH, but all of which compose under `|` as if they were. The third line is pure POSIX shell. The fourth mixes a SQL row source with a TS lambda. **Each form has the same observable behavior** — pick the surface that fits where you're working.
+That first pipeline is a `range` source, then a `parallel` operator, then `GET` (HTTP verb), then `expect` and `stats` (sinks) — none of which are real binaries on your PATH, but all of which compose under `|` as if they were. The third line is pure POSIX shell. The fourth mixes a SQL row source with an `assert` predicate. The fifth is a complete HTTP fixture on one line — a JSON-literal body, an env-expanded auth header, a status assertion — the **shorthand fixture grammar** that [test-pipes](/docs/recipes/api-smoke-tests) runs from `.pipes` files. **Each form has the same observable behavior** — pick the surface that fits where you're working.
 
 ## The mental model
 
@@ -85,8 +98,11 @@ The shell parser classifies each `|`-separated stage by looking at its first tok
 |---|---|
 | Contains `*` / `?` / `[…]` | Glob source |
 | Matches `range(a, b)` | Range source |
+| Starts with `{` or `[` | JSON-literal source (invalid JSON = hard error, never shell) |
+| Starts with `read <path\|glob>` | Whole-file source — one item per file |
 | Starts with `(` and contains `=>` | TypeScript lambda |
-| Starts with `GET` / `POST` / `PUT` / `PATCH` / `DELETE` | HTTP stage |
+| Starts with `assert (` | Assert stage — falsy or empty upstream fails the pipeline |
+| Starts with `GET` / `POST` / `PUT` / `PATCH` / `DELETE` | HTTP stage (`-H` headers, `$VAR` expansion, `:port` shorthand) |
 | First token is a builtin name | Builtin (in-process dispatch) |
 | First token is a `crust.fn`-registered function | Registered function (per-item transform) |
 | Anything else | Shell stage — handed to `sh -c "<text>"` |

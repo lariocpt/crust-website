@@ -1,27 +1,31 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: API smoke tests
-description: Globs → POST → expect — single-line API smoke tests in crust.
+description: read-glob → POST → expect one-liners, .pipes suites with DB asserts, and .crust.ts fixtures — API smoke tests at three altitudes.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
 **Goal:** point a folder of JSON fixtures at an HTTP service and confirm every one comes back `2xx`. Pure pipeline — no test runner, no framework.
 
+This recipe works at three altitudes. Pick by how much each test needs to know:
+
+- **One shell line** — the whole test is self-contained: body, headers, one assertion.
+- **A `.pipes` file** — a *suite* of shell lines, run in order, with SQL/`assert` lines checking what earlier lines did.
+- **`.crust.ts` fixtures (the TypeScript API)** — a single test needs multi-step logic: reuse a value from the response, generated tokens, per-fixture setup/teardown.
+
 ## The one-liner
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  # Shell-line: glob → POST per item → predicate.
-  # In v0.1.5 the predicate becomes `expect 201` as a shell-line keyword.
-  fixtures/*.json | POST :3000/users | (r => r.status === 201)
+  # read yields each file's CONTENTS (a bare glob would POST the paths)
+  read fixtures/*.json | POST :3000/users | expect 201
   ```
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  await glob("fixtures/*.json")
-    .pipe(async path => Bun.file(path).text())
+  await readAll("fixtures/*.json")
     .pipe(POST("http://localhost:3000/users"))
     .pipe(expectStage(201))
     .collect();
@@ -31,7 +35,11 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   </Fragment>
 </CodeSwitcher>
 
-The glob `fixtures/*.json` is a pipeline of file paths. `POST :3000/users` is a per-item transform — for each path, crust reads the file, POSTs the body, and emits the `Response`. The final lambda (or `expectStage` in TS) is the assertion.
+`read fixtures/*.json` is a pipeline with one item per matched file — the file's **whole contents**, which `POST :3000/users` sends as the request body, per item. `expect 201` drains the stream and fails the pipeline (exit 1) naming the mismatch count. Add auth with `-H` (URLs, `-H` values and JSON literals are `$VAR` env-expanded):
+
+```bash
+read fixtures/*.json | POST $BASE/api/users -H "authorization: Bearer $TOKEN" | expect 201
+```
 
 ## A typical fixture folder
 
@@ -48,9 +56,56 @@ fixtures/
 
 Each `.json` is the body for one request. Use as many as you like — every file becomes one item in the pipeline.
 
-## When you need more — `.crust.ts` fixtures
+## A suite of one-liners — `.pipes` files
 
-For anything with auth headers, generated tokens, or schema-shape assertions, switch to a `.crust.ts` fixture file. Each file default-exports an object with `input` and `output`. Fields can be values *or* zero-argument thunks (resolved + awaited at run time). In `output`, a function with at least one parameter is a predicate matcher over the actual value.
+When one line isn't enough but every *test* still is, put the lines in a `.pipes` file: **one shorthand fixture pipeline per line**, `#` comments, blank lines skipped. `test-pipes` runs them **sequentially, in order** — on purpose, so a `sql | assert` line can check what the previous request wrote:
+
+```bash
+# smoke.pipes — request, then prove the DB saw it
+{"name": "Court", "floors": 3} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | expect 201
+sql "SELECT count(*)::int AS c FROM buildings WHERE name = 'Court'" | assert (r => r.c === 1)
+
+# JSON-literal bodies are env-expanded too
+{"name": "Annex", "parent": "$BUILDING_ID"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | expect 201
+
+# reads work as fixtures as well
+GET $BASE/api/buildings -H "authorization: Bearer $TOKEN" | (r => r.json()) | assert (b => b.items.length >= 2)
+```
+
+```bash
+test-pipes --target smoke.pipes
+test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
+```
+
+`--bail` stops at the first failing line; `--timeout <ms>` fails any line that runs longer. Exit codes: `0` all pass, `1` any fail, `2` no files / bad args.
+
+Two behaviors that keep suites honest:
+
+- `assert (x => expr)` fails on falsy — **and on an empty upstream**. A `SELECT` that matches zero rows streams zero items, so a per-item predicate would never run; `assert` turns that into a failure ("no items reached") instead of a silent pass.
+- Env expansion covers URLs, `-H` values, JSON literals and `sql` args. Lambda and `assert` bodies are JS — use `process.env.TOKEN` there, not `$TOKEN`.
+
+### The setup module
+
+Before a file runs, its setup module is imported and its **default export awaited**: pass `--setup <module>`, or drop a sibling `<name>.setup.ts` next to the `.pipes` file. Setup seeds `process.env` — that's where `$BASE` and `$TOKEN` come from:
+
+```ts
+// smoke.setup.ts — sibling of smoke.pipes, picked up automatically
+export default async () => {
+  process.env.BASE = "http://localhost:3000";
+  const res = await fetch("http://localhost:3000/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "smoke@test.dev", password: "pw-123456" }),
+  });
+  process.env.TOKEN = (await res.json()).token;
+};
+```
+
+Each `.pipes` file runs in a fresh, hermetic context — builtin fns like `sql` are registered, but your `init.ts` and aliases are not. A `.pipes` file must behave the same on every machine.
+
+## The TypeScript API — `.crust.ts` fixtures
+
+Reach for `.crust.ts` fixtures when a single test stops being expressible as one line: a value from the response feeds a later step, tokens are generated per fixture, matchers assert on structure, or the fixture needs its own `setup`/`teardown`. Each file is a normal TypeScript module that default-exports a fixture (or array) with `input` and `output`. Fields can be values *or* zero-argument thunks (resolved + awaited at run time). In `output`, a function with at least one parameter is a predicate matcher over the actual value.
 
 `setup()`'s return value flows through the whole fixture: `input`/`output`
 may be functions of the context, unary `input` field functions receive it,
@@ -118,7 +173,7 @@ expectStage("2xx");                      // class — "2xx" | "3xx" | "4xx" | "5
 expectStage((res) => res.status < 300);  // custom predicate
 ```
 
-> The TS-test ecosystem owns the name `expect`. Crust exports it as `expectStage` to avoid collisions when you `import { expect as expectStage }` in test files. From the shell line in v0.1.5 it'll just be `expect 201`.
+> The TS-test ecosystem owns the name `expect`. Crust exports it as `expectStage` to avoid collisions when you `import { expect as expectStage }` in test files. From the shell line it's just `expect 201`.
 
 ## Cross-check the database after a request
 
@@ -134,12 +189,13 @@ The shape: `POST → JSON → id → query → row → predicate`. Each `|` is o
 
   # Create the user, then verify the row landed with the right values.
   # `Bun.sql\`...\`` template tags safely parameterize ${id}.
-  echo '{"name":"Lario","email":"lario@example.com"}' \
+  # `assert` fails the pipeline on falsy — AND if no row reaches it.
+  {"name": "Lario", "email": "lario@example.com"} \
     | POST :3000/users \
     | (r => r.json()) \
     | (u => u.id) \
     | (id => (await Bun.sql`select name, email from users where id = ${id}`)[0]) \
-    | (row => row?.email === 'lario@example.com' && row?.name === 'Lario')
+    | assert (row => row?.email === 'lario@example.com' && row?.name === 'Lario')
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -242,5 +298,6 @@ Exit codes:
 
 ## Related
 
-- [Stress testing](/docs/recipes/stress-testing) — same fixtures, `--count N` for percentile reports.
+- [Generated negative fixtures](/docs/recipes/gen-fixtures) — derive the 401/403/404/400 matrix from your OpenAPI spec instead of writing it.
+- [Stress testing](/docs/recipes/stress-testing) — same fixtures, `--count N` for percentile reports, `--timeout`/`--bail` for long runs.
 - [Mock server](/docs/recipes/mock-server) — point smoke tests at an OpenAPI mock when the real service isn't running.

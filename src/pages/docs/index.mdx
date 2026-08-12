@@ -20,15 +20,16 @@ The installer puts crust in `~/.crust/`, installs Bun if missing, copies a start
 - **[Quickstart](/docs/quickstart)** — every command crust ships, with the shell-line form and the TS-API form side by side.
 - **[npm packages](/docs/npm-packages)** — turn any globally-installed npm package into a pipeline stage, plus `crust.fn` for the harder cases.
 - **[DB drivers](/docs/db-drivers)** — point the `sql` builtin at Postgres, MySQL, SQLite, or anything you can wire up via `init.ts`.
-- **[Recipes](/docs/recipes)** — workflows you can lift directly: stress runs, OpenAPI mocks, smoke tests, log mining.
+- **[Recipes](/docs/recipes)** — workflows you can lift directly: stress runs, OpenAPI mocks, smoke tests, generated negative fixtures, log mining.
 
-## v0.1 at a glance
+## At a glance
 
 | | |
 |---|---|
-| Sources | shell commands, `range(a,b)`, globs (`**/*.ts`), `GET <url>` |
-| Transforms | shell stages, `(x => …)` TS lambdas, `POST` / `PUT` / `PATCH` / `DELETE` |
+| Sources | shell commands, `range(a,b)`, globs (`**/*.ts`), `GET <url>`, `read <glob>` (whole-file items), `{…}` JSON literals, `tail`, `procs({…})` |
+| Transforms | shell stages, `(x => …)` TS lambdas, `GET` / `POST` / `PUT` / `PATCH` / `DELETE` with `-H` headers and `$VAR` env expansion, `parallel N` |
+| Assertions | `expect NNN` (status), `assert (x => expr)` (predicate; empty upstream fails), `stats` / `stats --every N` |
 | Sinks | stdout (default), `write(path)`, `dest(dir)`, `stats()` |
-| Builtins | `cd`, `export`, `alias`, `source`, `history`, `dotenv`, `test-fixture`, `mock-server`, `verify-web-links`, `time`, `exit`, `help` |
+| Builtins | `cd`, `export`, `alias`, `source`, `history`, `dotenv`, `test-fixture`, `test-pipes`, `gen-fixtures`, `mock-server`, `verify-web-links`, `time`, `exit`, `help` |
 | Configuration | `~/.config/crust/init.ts` — register aliases, `crust.fn(...)` stages, lifecycle hooks |
-| One-liner mode | `crust -c '<pipeline>'` from any shell |
+| One-liner mode | `crust -c '<pipeline>'` from any shell — multi-line strings are fail-fast |

@@ -22,8 +22,8 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   # OS-assigned port, bind to localhost only
   mock-server --swagger ./spec.json --port 0 --host 127.0.0.1
 
-  # Linux cluster mode — N workers sharing the port via SO_REUSEPORT
-  mock-server --swagger ./openapi.yaml --port 4000 --cluster 4
+  # Stateful mode — what you POST is what you GET back
+  mock-server --swagger ./openapi.yaml --port 4000 --stateful
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -48,10 +48,10 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. |
+| `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. Swagger 2.0 specs are auto-converted to OpenAPI 3.x. |
 | `--port N` | `3000` | `0` requests an ephemeral OS-assigned port. |
 | `--host addr` | `0.0.0.0` | Bind address. |
-| `--cluster N` | `1` | Linux only. Forks N workers sharing the port; each request log line prefixed `[wN]`. |
+| `--stateful` | off | In-memory CRUD layer on top of example mode — see below. |
 
 ## How responses are picked
 
@@ -92,6 +92,37 @@ DELETE /pets/99     404  0ms
 
 `Ctrl-C` (or `SIGTERM`) shuts the server down cleanly.
 
+## Stateful mode — `--stateful`
+
+Example mode replays the same spec example forever — fine for "does the client render a pet", useless for "create a pet, then edit it". `--stateful` adds an in-memory CRUD layer so the mock *remembers*:
+
+- `POST` on a collection **creates** — the stored item is the spec-synthesized base merged **under** your request body, plus an `id` (yours if the body has one, else a random uuid).
+- `GET` on an item returns exactly what's stored; `GET` on the collection returns everything stored, **shaped like the spec's collection envelope** (a documented `{ items: [...] }` wrapper is preserved; a bare array stays a bare array).
+- `PATCH` / `PUT` **merge** the body over the stored item. `DELETE` removes it and returns `204`. Unknown ids are `404`.
+- **Untouched collections keep serving spec examples** — consumers see no change until they write.
+
+A full round trip:
+
+```bash
+mock-server --swagger ./openapi.yaml --port 4000 --stateful &
+
+curl -s -X POST :4000/pets -H 'content-type: application/json' \
+  -d '{"name": "Rex", "tag": "dog"}'
+# → {"id":"1b2e…","name":"Rex","tag":"dog"}   (spec base + your body + id)
+
+curl -s :4000/pets/1b2e…
+# → the same item back — not the spec example
+
+curl -s -X PATCH :4000/pets/1b2e… -H 'content-type: application/json' \
+  -d '{"tag": "good dog"}'
+# → {"id":"1b2e…","name":"Rex","tag":"good dog"}   (merged)
+
+curl -s -X DELETE :4000/pets/1b2e…   # 204
+curl -s :4000/pets/1b2e…             # 404 {"error":"not found"}
+```
+
+**When it beats example mode:** any client flow that reads its own writes — create-then-list screens, edit forms, optimistic-UI reconciliation, multi-step wizards, and fixture suites that assert on round-tripped values. Stick with plain example mode when you want deterministic, spec-exact bodies on every request. State lives in memory only; restarting the mock is a clean slate.
+
 ## Pairing with crust pipelines
 
 The mock is just an HTTP server — drive it with normal crust pipelines.
@@ -124,17 +155,17 @@ The mock is just an HTTP server — drive it with normal crust pipelines.
   </Fragment>
 </CodeSwitcher>
 
-## v0.1 limits
+## Limits
 
 Honest about what doesn't work yet:
 
-- Swagger 2.0
 - Remote `$ref` resolution
-- Request validation (the mock accepts anything that routes)
+- Request validation (the mock accepts anything that routes — even in stateful mode)
 - Faker-style data (every `string` is just `"string"` unless the format is known)
 - Hot-reload on spec changes
 
 ## Related
 
-- [API smoke tests](/docs/recipes/api-smoke-tests) — fixtures + `expect 201` against the mock.
+- [API smoke tests](/docs/recipes/api-smoke-tests) — one-liners, `.pipes` suites and fixtures against the mock.
+- [Generated negative fixtures](/docs/recipes/gen-fixtures) — the spec's *other* use: deriving rejection tests (run those against the real server, not the mock).
 - [Stress testing](/docs/recipes/stress-testing) — `--count` + `--threads` for high-volume runs against the mock.

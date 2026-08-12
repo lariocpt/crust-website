@@ -21,7 +21,9 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
   # Interactive REPL
   ~/.crust/bin/crust
 
-  # One-liner mode — runs through the full pipeline parser
+  # One-liner mode — runs through the full pipeline parser.
+  # Multi-line strings are fail-fast: crust stops at the first
+  # failing line and exits with ITS code.
   crust -c 'range(0,99) | parallel 20 | GET :3000/health | expect 200 | stats'
 
   # Help / version
@@ -58,6 +60,8 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   tail -F api.log worker.log        # follow N files at once
   GET https://api.example.com/v1    # Pipeline<Response>
   GET :3000/health                  # localhost shorthand
+  read fixtures/*.json              # whole-file contents, one item per file
+  {"name": "Court"}                 # JSON literal — one parsed item
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -74,9 +78,13 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   tail(["api.log", "worker.log"]);      // explicit multi-file
   GET("https://api.example.com/v1");    // Pipeline<Response>
   GET("http://localhost:3000/health");
+  readAll("fixtures/*.json");           // whole files, one item each
+  Pipeline.of([{ name: "Court" }]);     // literal item
   ```
   </Fragment>
 </CodeSwitcher>
+
+`read <path|glob>` yields each matched file's **entire contents** as one item — the fixture-folder source. A bare glob (`fixtures/*.json`) yields *paths*. A stage starting `{` or `[` is a **JSON-literal source**: one parsed item (env-expanded), and invalid JSON is a hard error — it never falls back to shell.
 
 ## Transforms
 
@@ -90,6 +98,7 @@ Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all wor
   ... | tr '[:lower:]' '[:upper:]'             # standard pipes work
   ... | POST :3000/users                       # per-item POST (body = item)
   ... | DELETE :3000/users/:id                 # per-item DELETE
+  ... | POST $BASE/api/things -H "authorization: Bearer $TOKEN"
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -100,21 +109,33 @@ Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all wor
     .pipe(POST("http://localhost:3000/users"))
     .pipe(DELETE("http://localhost:3000/users/:id"));
 
+  // Headers via RequestInit — no env expansion needed in TS
+  pipeline.pipe(POST(`${process.env.BASE}/api/things`, {
+    headers: { authorization: `Bearer ${process.env.TOKEN}` },
+  }));
+
   // HTTP transforms auto-set content-type: application/json for objects.
   // Strings → text. Buffer / Uint8Array → raw bytes.
   ```
   </Fragment>
 </CodeSwitcher>
 
+Every http verb takes repeatable `-H "Key: value"` flags, and URLs, `-H` values, and JSON literals are `$VAR`/`${VAR}` env-expanded (lambda bodies are **not** — they're JS, use `process.env`). The `:port/path` localhost shorthand works for all verbs, and `parallel N` upstream fans out non-GET verbs too.
+
 ## Assertions, concurrency, stats
 
-In v0.1 `expect`, `parallel`, and `stats` are TypeScript-only — shell-line keywords land in v0.1.5. To use them from a shell line today, write your pipeline in a `.ts` file or `source` it from a script.
+`expect`, `assert`, `parallel`, and `stats` are shell-line keywords with exact TS-API equivalents.
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  # v0.1.5+ (preview — not yet a shell-line keyword)
   range(0, 999) | parallel 50 | GET :3000/health | expect 200 | stats
+
+  # assert: falsy FAILS the pipeline — and so does an empty upstream
+  sql "SELECT count(*)::int AS c FROM users" | assert (r => r.c === 1)
+
+  # stats --every N: windowed delta summaries + a {final: true} cumulative one
+  range(0, 5999) | parallel 50 | GET :3000/health | stats --every 5
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -133,6 +154,10 @@ In v0.1 `expect`, `parallel`, and `stats` are TypeScript-only — shell-line key
   ```
   </Fragment>
 </CodeSwitcher>
+
+`assert (x => expr)` differs from a lambda (which maps) and from `expect` (statuses only): a falsy result fails the pipeline, and an **empty upstream also fails** ("no items reached") — so a `SELECT` that returns zero rows can't silently pass.
+
+> `parallel` streams results in **completion order**, not input order — a deliberate contract so downstream windowed stats see a live stream. Sort downstream if you need input order.
 
 ## Timing — `time "label"`
 
@@ -265,6 +290,10 @@ Runs `.crust.ts` fixture files against an HTTP service. Each file is a normal TS
   test-fixture --target fixtures/users.crust.ts --out report.md
   test-fixture --target 'fixtures/**/*.crust.ts' --threads 8 --out report.json
   test-fixture --target stress.crust.ts --count 1000 --threads 32 --out report.json
+
+  # --timeout fails any fixture whose request runs longer (its own
+  # input.signal wins); --bail stops starting new fixtures on first failure
+  test-fixture --target 'gen/*.gen.crust.ts' --timeout 5000 --bail
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -291,6 +320,60 @@ Runs `.crust.ts` fixture files against an HTTP service. Each file is a normal TS
 
 For randomized inputs across iterations, see the [Stress testing recipe](/docs/recipes/stress-testing).
 
+### test-pipes
+
+Runs `.pipes` files — one shorthand fixture pipeline per line, `#` comments, sequential per file. A setup module (`--setup`, or a sibling `<name>.setup.ts`) has its default export awaited first to seed `process.env`.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  test-pipes --target smoke.pipes
+  test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
+
+  # smoke.pipes:
+  # {"name":"Court"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | expect 201
+  # sql "SELECT count(*)::int AS c FROM buildings" | assert (r => r.c === 1)
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // smoke.setup.ts — awaited before the file's lines run
+  export default async () => {
+    process.env.BASE = "http://localhost:3000";
+    process.env.TOKEN = await loginAndGetToken();
+  };
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+See the [API smoke tests recipe](/docs/recipes/api-smoke-tests) for a full `.pipes` suite.
+
+### gen-fixtures
+
+Generates the negative-test matrix (401/403/404 + per-field 400s with schema-valid base bodies) from an OpenAPI spec, as `.crust.ts` files runnable by `test-fixture`.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
+  test-fixture --target 'tests/gen/*.gen.crust.ts' --threads 8
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  import { generateFixtures } from "crust/genFixtures";
+
+  const { files, totalCases } = await generateFixtures({
+    swagger: "./openapi.json",
+    out: "tests/gen",
+    setup: "./tests/gen-setup.ts",
+  });
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+See the [Generated negative fixtures recipe](/docs/recipes/gen-fixtures) for the setup-module contract.
+
 ### mock-server
 
 Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
@@ -301,7 +384,7 @@ Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
   mock-server --swagger ./openapi.yaml --port 4000
   mock-server --swagger https://petstore3.swagger.io/api/v3/openapi.json --port 4747
   mock-server --swagger ./spec.json --port 0 --host 127.0.0.1     # OS-assigned port
-  mock-server --swagger ./openapi.yaml --port 4000 --cluster 4    # Linux: SO_REUSEPORT
+  mock-server --swagger ./openapi.yaml --port 4000 --stateful     # in-memory CRUD
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -318,7 +401,7 @@ Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
   </Fragment>
 </CodeSwitcher>
 
-See the [Mock server recipe](/docs/recipes/mock-server) for response-selection rules, cluster mode, and per-request log format.
+See the [Mock server recipe](/docs/recipes/mock-server) for response-selection rules, stateful mode, and per-request log format.
 
 ### verify-web-links
 

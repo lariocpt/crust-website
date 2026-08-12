@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Stress testing
-description: Run any .crust.ts fixture N times across M threads with randomized inputs and a p50/p95/p99 report.
+description: Shell-native load one-liners, soak runs with windowed stats --every summaries, and .crust.ts fixtures at volume with p50/p95/p99 reports.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
@@ -23,6 +23,33 @@ the mismatch count, and `stats` yields one summary with real latency
 percentiles, rps and a status histogram. For write paths and DB-verified
 flows, use fixtures below.
 
+> `parallel` streams results in **completion order**, not input order. That's
+> deliberate: downstream stages see each result the moment it settles, which
+> is what makes the windowed soak stats below meaningful — a barrier variant
+> would dump everything into the final window. Sort downstream if you need
+> input order.
+
+## Soak testing — `stats --every N`
+
+One cumulative summary hides drift: a warming cache, a leaking pool, a
+slowly saturating queue. `stats --every N` emits a **delta summary per
+N-second window** while the run is still going, then one cumulative summary
+tagged `final`:
+
+```bash
+range(0, 99999) | parallel 50 | GET :3000/health | stats --every 5
+# {"window":1,"count":2412,"wallMs":5001,"rps":482,"status":{"200":2412},"p50":51.2,"p95":63.0,"p99":88.4,"meanMs":52.0}
+# {"window":2,"count":2380,"wallMs":5000,"rps":476,"status":{"200":2380},"p50":52.8,"p95":66.1,"p99":94.0,"meanMs":53.6}
+# {"window":3,"count":2118,"wallMs":5002,"rps":423,"status":{"200":2101,"503":17},"p50":58.9,"p95":112.7,"p99":301.2,"meanMs":66.1}
+# ...
+# {"final":true,"count":100000,"wallMs":214180,"rps":467,"status":{"200":99801,"503":199},"p50":53.1,"p95":71.9,"p99":140.2,"meanMs":55.0}
+```
+
+Each window is a fresh accumulator — window 3's rising p99 and 503s are
+*this window's* problem, visible while it happens, not averaged away by the
+first two minutes. Windows flush on the item path, so a fully stalled
+upstream holds the next window until an item arrives.
+
 ## The shape of it
 
 `--count N` runs every matched fixture N times. Combine with `--threads M` for concurrency. When `N > 1` the report adds a stress block per fixture: `p50`, `p95`, `p99`, mean, min, max, plus the status-code distribution. Each result is tagged with its `iter` index so failures point at the offending iteration.
@@ -35,6 +62,9 @@ flows, use fixtures below.
 
   # Same idea, glob of fixtures, Markdown summary
   test-fixture --target 'fixtures/**/*.crust.ts' --count 500 --threads 16 --out report.md
+
+  # Long runs: cap each request, stop scheduling on first failure
+  test-fixture --target stress.crust.ts --count 10000 --threads 32 --timeout 5000 --bail
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -131,6 +161,13 @@ The report format is picked from `--out`'s extension: `.json`, `.md`, anything e
 ```
 
 Exit codes: `0` all pass, `1` any failure or error, `2` no files matched or bad args.
+
+## Runner knobs for long runs
+
+- `--timeout <ms>` — fail any fixture whose request runs longer. A fixture's own `input.signal` wins; `--timeout` only fills the gap. Without it, one hung socket stalls a 10k-iteration run indefinitely.
+- `--bail` — stop **starting** new iterations after the first fail/error; in-flight ones finish and are reported. The right default for CI stress gates, where iteration 12 failing makes the next 9,988 noise.
+
+> **Teardown isolation.** Under `--threads`/`--count`, many iterations are mid-flight at once. A `teardown` must touch ONLY what its own `ctx` created — a "global cleanup" sweep (`DELETE FROM users`) shreds every iteration still running. Full resets belong outside the runner.
 
 ## Tips
 

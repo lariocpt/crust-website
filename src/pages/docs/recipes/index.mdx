@@ -10,11 +10,15 @@ Hand-picked workflows. Each recipe is a focused scenario — what the goal is, t
 
 <div class="recipe-grid">
   <RecipeCard href="/docs/recipes/stress-testing" title="Stress testing" tag="Load">
-    Push <code>test-fixture --count N --threads M</code> at high volume. Randomized inputs via the <code>random</code> helper, p50/p95/p99 reports.
+    Shell-native load one-liners, soak runs with windowed <code>stats --every</code> summaries, and <code>test-fixture --count N --threads M</code> with randomized inputs and p50/p95/p99 reports.
   </RecipeCard>
 
   <RecipeCard href="/docs/recipes/mock-server" title="OpenAPI mock server" tag="HTTP">
-    Boot a <code>Bun.serve</code> mock from any OpenAPI 3.x spec. Example-first response selection, cluster mode for Linux.
+    Boot a <code>Bun.serve</code> mock from any OpenAPI 3.x spec. Example-first response selection — or <code>--stateful</code> in-memory CRUD that remembers what you POST.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/gen-fixtures" title="Generated negative fixtures" tag="HTTP">
+    <code>gen-fixtures --swagger spec.json</code> derives the 401/403/404 and per-field 400 matrix from your OpenAPI spec — <code>.crust.ts</code> files the fixture runner executes.
   </RecipeCard>
 
   <RecipeCard href="/docs/recipes/verify-web-links" title="Verify web links + SEO" tag="HTTP">
@@ -22,7 +26,7 @@ Hand-picked workflows. Each recipe is a focused scenario — what the goal is, t
   </RecipeCard>
 
   <RecipeCard href="/docs/recipes/api-smoke-tests" title="API smoke tests" tag="HTTP">
-    <code>fixtures/*.json | POST :3000/users | expect 201</code>. Globs → HTTP → assertions in one line.
+    <code>read fixtures/*.json | POST :3000/users | expect 201</code> — one line per test, or whole <code>.pipes</code> suites with <code>sql</code>/<code>assert</code> DB checks between requests.
   </RecipeCard>
 
   <RecipeCard href="/docs/recipes/dev-tail" title="One dev tail" tag="Dev">

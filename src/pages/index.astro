@@ -92,8 +92,8 @@ import FeatureCard from '../components/FeatureCard.astro';
 				<a class="recipe" href="/docs/recipes/api-smoke-tests">
 					<h3>API smoke tests</h3>
 					<p>
-						<code>fixtures/*.json | POST :3000/users | expect 201</code> in one line —
-						globs, HTTP, assertions.
+						<code>read fixtures/*.json | POST :3000/users | expect 201</code> in one
+						line — or whole <code>.pipes</code> suites with SQL asserts.
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>
