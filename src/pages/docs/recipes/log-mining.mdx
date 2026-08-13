@@ -244,6 +244,21 @@ buffer: 551/10000 items (pushed 551, evicted 0)
 logs> exit
 ```
 
+Because every query is ordinary pipeline grammar, rendering is just
+another stage — filter on the raw JSON first, then hand the matches to
+`pino-pretty`:
+
+```
+logs> grep api_request | node_modules/.bin/pino-pretty --colorize --singleLine
+[11:46:18.313] INFO: api_request {"request_id":"…","path":"/api/health","status":200,"duration_ms":4}
+-- live --
+…colorized lines keep streaming until ^C…
+```
+
+`--colorize` forces ANSI even though pino-pretty runs behind a pipe. Keep
+the `grep`/`filter` **before** the pretty stage — after it, you'd be
+matching against ANSI-decorated text.
+
 The parts worth knowing: **Ctrl-C once** ends the live view *gracefully* —
 the stream finishes, so a query ending in bare `stats` prints its summary
 exactly there; **Ctrl-C twice** hard-cancels a stuck query; the session and
