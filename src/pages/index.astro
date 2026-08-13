@@ -127,8 +127,8 @@ import FeatureCard from '../components/FeatureCard.astro';
 				<a class="recipe" href="/docs/recipes/log-mining/">
 					<h3>Log mining</h3>
 					<p>
-						Recursive globs piped through grep, lambdas, and TS predicates for fast
-						forensic queries.
+						Recursive globs piped through grep, <code>filter</code> stages, and TS
+						lambdas for fast forensic queries.
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>
@@ -148,7 +148,10 @@ import FeatureCard from '../components/FeatureCard.astro';
 	<section class="section cta">
 		<div class="container cta-inner">
 			<h2>Bake it in.</h2>
-			<p>Install in one curl. Make it your terminal or call it from bash for the one-liners.</p>
+			<p>
+				Install in one curl. Script it with <code>.crust</code> files, drive it from your
+				shell with <code>crust -c</code>, or live in the REPL.
+			</p>
 			<div class="cta-actions">
 				<a class="btn primary" href="/docs/intro/">Get started</a>
 			</div>

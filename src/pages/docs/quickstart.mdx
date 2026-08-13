@@ -19,12 +19,17 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
   <Fragment slot="bash">
   ```bash
   # Interactive REPL
-  ~/.crust/bin/crust
+  crust
 
   # One-liner mode — runs through the full pipeline parser.
   # Multi-line strings are fail-fast: crust stops at the first
   # failing line and exits with ITS code.
   crust -c 'range(0,99) | parallel 20 | GET :3000/health | expect 200 | stats'
+
+  # Script mode — same parser, same fail-fast exit codes.
+  # Blank lines and # comments are skipped, so a shebang works.
+  crust deploy-checks.crust
+  echo 'range(1,3) | filter (n => n > 1)' | crust
 
   # Help / version
   crust -h
@@ -97,7 +102,8 @@ Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all wor
   <Fragment slot="bash">
   ```bash
   ... | grep TODO                              # any shell command
-  ... | (line => line.toUpperCase())           # TS lambda
+  ... | (line => line.toUpperCase())           # TS lambda (maps every item)
+  ... | filter (line => line.includes('ERR'))  # keep items whose predicate is truthy
   ... | tr '[:lower:]' '[:upper:]'             # standard pipes work
   ... | POST :3000/users                       # per-item POST (body = item)
   ... | DELETE :3000/users/:id                 # per-item DELETE
@@ -168,7 +174,7 @@ Every http verb takes repeatable `-H "Key: value"` flags, and URLs, `-H` values,
   </Fragment>
 </CodeSwitcher>
 
-`assert (x => expr)` differs from a lambda (which maps) and from `expect` (statuses only): a falsy result fails the pipeline, and an **empty upstream also fails** ("no items reached") — so a `SELECT` that returns zero rows can't silently pass.
+`assert (x => expr)` differs from a lambda (which maps), from `filter` (which drops falsy items and passes an empty result silently), and from `expect` (statuses only): a falsy result fails the pipeline, and an **empty upstream also fails** ("no items reached") — so a `SELECT` that returns zero rows can't silently pass.
 
 `capture NAME (fn)` writes at **run** time while `$VAR` expands at **parse** time — chaining works *across* lines (REPL, `-c` scripts, `.pipes` files), never within one. A nullish captured value or an empty upstream fails the pipeline immediately. See [API smoke tests](/docs/recipes/api-smoke-tests/) for full CRUD chains.
 

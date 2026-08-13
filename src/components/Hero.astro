@@ -5,15 +5,16 @@ import InstallBlock from './InstallBlock.astro';
 <section class="hero">
 	<div class="bg" aria-hidden="true"></div>
 	<div class="container inner">
-		<span class="eyebrow">v0.1 · pipelines first</span>
+		<span class="eyebrow">v0.2 · pipelines first</span>
 		<h1>
-			A freshly baked <span class="grad">bun shell</span>,<br />
-			just as versatile, just as <span class="grad">bun</span>.
+			Mock it, test it, load it —<br />
+			one freshly baked <span class="grad">pipeline</span>, all <span class="grad">bun</span>.
 		</h1>
 		<p class="lede">
-			Crust is a Bun-powered shell with first-class pipelines. Bash commands, TypeScript
-			lambdas, HTTP verbs, globs, and parallel workers all compose under one
-			<code>|</code> / <code>.pipe()</code> abstraction.
+			Crust is a pipeline-first devops toolkit built on Bun. A spec-driven mock server,
+			fixture and load-test runners, process orchestration, and a link checker compose on
+			one <code>|</code> / <code>.pipe()</code> stream — from the REPL, a
+			<code>crust -c</code> one-liner, or a <code>.crust</code> script.
 		</p>
 
 		<div class="install-wrap">
@@ -36,7 +37,7 @@ import InstallBlock from './InstallBlock.astro';
 <span class="c"># &#123; count: 10001, durationMs: 814, p50: 5, p95: 17, p99: 41 &#125;</span>
 
 <span class="p">$</span> read fixtures/<span class="g">*.json</span> <span class="op">|</span> POST <span class="s">:3000/users</span> <span class="op">|</span> expect 201
-<span class="p">$</span> <span class="g">**/*.log</span> <span class="op">|</span> (l <span class="op">=&gt;</span> l.includes(<span class="s">'ERROR'</span>)) <span class="op">|</span> wc -l
+<span class="p">$</span> read <span class="g">**/*.log</span> <span class="op">|</span> grep ERROR <span class="op">|</span> filter (l <span class="op">=&gt;</span> !l.includes(<span class="s">'healthcheck'</span>)) <span class="op">|</span> wc -l
 <span class="p">$</span> sql <span class="s">"select email from users limit 5"</span> <span class="op">|</span> (r <span class="op">=&gt;</span> r.email)</code></pre>
 		</div>
 	</div>

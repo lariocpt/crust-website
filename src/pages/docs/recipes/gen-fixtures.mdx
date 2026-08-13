@@ -244,6 +244,8 @@ export function resolvePath(ctx: Ctx, template: string) {
 
 The import specifier in generated files is rewritten relative to `--out`, so a path-like `--setup` works from anywhere; a bare package specifier is kept as-is.
 
+The crust repo ships a complete runnable module to copy at `examples/gen-setup.ts` — the same shape as above with working `fetch`-based auth helpers to replace with your API's flow.
+
 ## What a generated file looks like
 
 ```ts

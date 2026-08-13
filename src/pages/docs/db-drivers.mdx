@@ -36,8 +36,8 @@ The path of least resistance. Bun ships a native Postgres client.
   ```bash
   export DATABASE_URL='postgres://app:app@localhost:5432/app'
 
-  # Quick health check
-  sql "select 1 as ok" | (r => r.ok === 1)
+  # Quick health check — assert fails the line (exit 1) if it's not ok
+  sql "select 1 as ok" | assert (r => r.ok === 1)
 
   # Stream rows downstream
   sql "select id, email from users limit 5" | (r => r.email)

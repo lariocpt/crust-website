@@ -1,19 +1,19 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Log mining
-description: Recursive globs piped through grep, lambdas, and TS predicates for fast forensic queries.
+description: Recursive globs piped through grep, filter stages, and TS lambdas for fast forensic queries.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
-**Goal:** answer "which logs contain X, how many times, and what's around them" using crust's mixed shell + TS pipeline. Use `grep` when `grep` is enough; reach for a TS lambda when you need JSON parsing, structural filters, or per-line shaping.
+**Goal:** answer "which logs contain X, how many times, and what's around them" using crust's mixed shell + TS pipeline. Use `grep` when `grep` is enough; reach for a `filter` stage when the predicate is structural, and a TS lambda when you need JSON parsing or per-line shaping.
 
 ## Count error lines across a tree
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  **/*.log | grep ERROR | wc -l
+  read **/*.log | grep ERROR | wc -l
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -31,15 +31,15 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   </Fragment>
 </CodeSwitcher>
 
-## Filter with a predicate lambda
+## Filter with a TS predicate
 
-When you want a structural filter — say, only lines from a specific user — a lambda is friendlier than a `grep` regex.
+When you want a structural filter — say, only lines from a specific user — a `filter` stage is friendlier than a `grep` regex.
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  # Read every line, keep ones with both ERROR and user=42
-  **/*.log | (l => l.includes('ERROR') && l.includes('user=42'))
+  # grep narrows files to ERROR lines; filter applies the TS predicate per line
+  read **/*.log | grep ERROR | filter (l => l.includes('user=42'))
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -51,7 +51,7 @@ When you want a structural filter — say, only lines from a specific user — a
   </Fragment>
 </CodeSwitcher>
 
-The `(line => …)` form is a per-item TS lambda. Predicate semantics: truthy returns pass through, false ones are dropped. Thrown errors fail the pipeline.
+`filter (line => …)` keeps items whose predicate is truthy and drops the rest (plain JS truthiness — `0`, `""`, and `null` all drop). Async predicates are awaited; thrown errors fail the pipeline. A plain `(line => …)` lambda is different: it **maps** — a boolean-returning lambda emits `true`/`false` lines instead of dropping anything, and an empty `filter` result passes silently (use `assert` when nothing-matched should fail).
 
 ## Structured logs: JSON per line
 
@@ -60,13 +60,12 @@ If your logs are JSON-per-line, parsing and projecting is one lambda each.
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  # Read each .log file, parse lines as JSON, keep severity=error,
-  # project the message field
-  **/*.json.log
-    | (path => Bun.file(path).text())
-    | (text => text.split('\n').filter(Boolean))
+  # Read each .log file, split into lines, parse as JSON, keep
+  # severity=error, project the message field
+  read **/*.json.log
+    | grep .
     | (line => JSON.parse(line))
-    | (j => j.severity === 'error')
+    | filter (j => j.severity === 'error')
     | (j => j.msg)
   ```
   </Fragment>
@@ -84,18 +83,18 @@ If your logs are JSON-per-line, parsing and projecting is one lambda each.
   </Fragment>
 </CodeSwitcher>
 
-> Function-as-source flattens array return values. A lambda that returns `["a", "b", "c"]` emits three items, not one array. That's why `(text => text.split('\n'))` works as a per-file fan-out.
+> Shell stages linearize: whatever they print becomes one item per output line, which is why `grep .` turns whole-file items into per-line items (and drops blanks). A mid-pipeline lambda does **not** flatten arrays — `(text => text.split('\n'))` emits the whole array as a single item. Array flattening only happens for function-as-**source** return values.
 
 ## Group + count via reduce
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  # Count occurrences per error code (TS lambdas + the | operator)
-  **/*.log
+  # Extract error codes; filter drops the lines that had none
+  read **/*.log
     | grep ERROR
     | (l => (l.match(/ERR_[A-Z0-9_]+/) ?? [null])[0])
-    | (c => c)
+    | filter (c => c)
   # → stream the codes; pipe into your favorite counter
   ```
   </Fragment>

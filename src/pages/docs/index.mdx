@@ -1,18 +1,18 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: Docs
-description: A Bun-powered shell with first-class pipelines. Start here.
+description: A pipeline-first devops toolkit built on Bun. Start here.
 ---
 
 import InstallBlock from '../../components/InstallBlock.astro';
 
-Welcome to the Crust documentation. Crust is a Bun-powered shell with first-class pipelines — bash commands, TypeScript lambdas, HTTP verbs, globs, and parallel workers all compose under one `|` / `.pipe()` abstraction.
+Welcome to the Crust documentation. Crust is a pipeline-first devops toolkit built on Bun — bash commands, TypeScript lambdas, HTTP verbs, globs, and parallel workers all compose under one `|` / `.pipe()` abstraction, driven from a REPL, a `crust -c` one-liner, or a `.crust` script.
 
 ## Install
 
 <InstallBlock />
 
-The installer puts crust in `~/.crust/`, installs Bun if missing, copies a starter config to `~/.config/crust/init.ts`, and (with sudo) registers `~/.crust/bin/crust` in `/etc/shells`.
+The installer puts the `crust` binary on your PATH and copies a starter config to `~/.config/crust/init.ts`.
 
 ## Where to next
 
@@ -27,9 +27,10 @@ The installer puts crust in `~/.crust/`, installs Bun if missing, copies a start
 | | |
 |---|---|
 | Sources | shell commands, `range(a,b)`, globs (`**/*.ts`), `GET <url>`, `read <glob>` (whole-file items), `{…}` JSON literals, `tail`, `procs({…})` |
-| Transforms | shell stages, `(x => …)` TS lambdas, `GET` / `POST` / `PUT` / `PATCH` / `DELETE` with `-H` headers and `$VAR` env expansion, `parallel N` |
+| Transforms | shell stages, `(x => …)` TS lambdas, `filter (x => …)` truthy-keeps, `GET` / `POST` / `PUT` / `PATCH` / `DELETE` with `-H` headers and `$VAR` env expansion, `parallel N` |
 | Assertions | `expect NNN` (status), `assert (x => expr)` (predicate; empty upstream fails), `stats` / `stats --every N` |
 | Sinks | stdout (default), `write(path)`, `dest(dir)`, `stats()` |
 | Builtins | `cd`, `export`, `alias`, `source`, `history`, `dotenv`, `test-fixture`, `test-pipes`, `gen-fixtures`, `mock-server`, `verify-web-links`, `time`, `exit`, `help` |
 | Configuration | `~/.config/crust/init.ts` — register aliases, `crust.fn(...)` stages, lifecycle hooks |
 | One-liner mode | `crust -c '<pipeline>'` from any shell — multi-line strings are fail-fast |
+| Script mode | `crust file.crust`, `#!/usr/bin/env crust` shebang, or lines piped on stdin — comments skipped, fail-fast exit codes |
