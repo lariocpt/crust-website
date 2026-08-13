@@ -157,7 +157,7 @@ logs procs({web: "bun run dev", api: "bun api.ts"})
 ```
 
 ```
-logs: items are {proc, line, ts} objects — try (l => l.line) or filter (l => l.proc === "web")
+logs: items are {proc, stream, line} objects — try (l => l.line) or filter (l => l.proc === "web")
 logs> (l => l.line) | grep -i ready
 [web] ✓ Ready in 158ms          ← from the buffer, even if it scrolled by minutes ago
 -- live --
