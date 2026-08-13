@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Log mining
-description: Recursive globs piped through grep, filter stages, and TS lambdas for fast forensic queries.
+description: Forensic queries over log trees, live streams from any command via stdin, and the interactive logs session that holds a stream while you iterate on filters.
 ---
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
@@ -127,7 +127,7 @@ Crust ships a native `tail` source — last-N lines, `tail -F`-style follow, mul
   tail -n 100 application.log | grep ERROR
 
   # Follow forever, alert on errors
-  tail -F application.log | grep ERROR | (l => notifyPager(l))
+  tail -F application.log | grep ERROR | POST :9000/alerts
 
   # Follow only — skip the initial cut, only stream new lines
   tail -F -n 0 application.log | (l => JSON.parse(l))
@@ -170,6 +170,86 @@ Crust ships a native `tail` source — last-N lines, `tail -F`-style follow, mul
 **Rotation:** the follow loop tracks each file by inode and size. A rotate-and-recreate (logrotate, `mv app.log app.log.1 && touch app.log`) is detected via inode change, and the stream switches to the new file automatically. A truncate that shrinks the file below the current offset is also detected and resets the stream. A truncate-and-immediate-overwrite to a size ≥ the prior offset is indistinguishable from an append via `stat` alone, so it's treated as an append — matches GNU `tail -F` behavior.
 
 **Falling back to system `tail`:** unrecognized flags (`-c`, `--pid`, …) fall through to the system binary via the shell, so `tail -c 200 app.log` and `tail --help` keep working.
+
+**Bounded initial read:** the `-n N` cut scans backward from EOF in 64KB
+blocks and reads only the last-N-lines window — `tail -n 3` on a 500k-line
+log answers in ~20ms without ever holding the file in memory, and
+`tail -n 0 -F` reads nothing before following.
+
+## Live streams: two traps crust removes
+
+`tail -F app.log | grep ERROR` is the classic follow pipeline — and with
+system grep it silently stalls, because GNU grep block-buffers ~4KB when
+writing into a pipe. Crust runs the safe grep subset (`-i`/`-v`/`-F`, one
+pattern) as a **native line-buffered stage**, so every match streams the
+moment it arrives; anything fancier (combined flags, `$VARs`, POSIX
+classes, file grep) still gets exact system-grep semantics via `sh`.
+
+The second trap: getting *any* command's output into the pipeline. The
+`stdin` source (alias `-`) bridges the invoking pipe:
+
+```bash
+# Live error feed from a container, pino JSON → filtered → projected
+docker logs -f my-app | crust -c 'stdin | (l => { try { return JSON.parse(l) } catch { return null } }) | filter (e => e && e.level >= 40) | (e => e.msg)'
+
+# Rolling latency/status windows over live traffic
+docker logs -f my-app | crust -c 'stdin | (l => { try { return JSON.parse(l) } catch { return null } }) | filter (e => e && e.status) | (e => ({status: e.status, ms: e.duration_ms})) | stats --every 3'
+
+# journald, priority err and above
+journalctl -f -o json | crust -c 'stdin | (l => JSON.parse(l)) | filter (e => e.PRIORITY <= 3) | (e => e.MESSAGE)'
+```
+
+Real capture of the second line against a container under load:
+
+```
+{"window":1,"count":121,"wallMs":3002,"rps":40,"status":{"200":121},"p50":1,"p95":1,"p99":2,"meanMs":0.9}
+{"window":2,"count":120,"wallMs":3002,"rps":40,"status":{"200":120},"p50":1,"p95":1,"p99":2,"meanMs":0.8}
+```
+
+Wrap `JSON.parse` in a try/catch on mixed streams — real container logs
+carry startup banners between the JSON lines, and a bare parse dies on the
+first one. Note the bare-pipe rule: `cmd | crust` treats piped stdin as a
+*script*, so data pipes always go through `crust -c 'stdin | …'`.
+
+## Interactive: hold the stream, iterate on filters
+
+Re-running a follow pipeline restarts the tail and loses the recent past.
+The `logs` builtin holds one live source open, buffers the last 10k items
+(`--buffer N` to change), and every line you type is an ordinary pipeline
+fragment run over that buffer first, then over the live stream:
+
+```bash
+logs docker logs -f --tail 300 my-app     # any shell command's stdout
+logs tail -n 0 -F app.log                 # or a file follow
+logs procs({web: "bun run dev"})          # or a whole process group
+```
+
+A real session against a live container:
+
+```
+logs: docker logs -f --tail 300 my-app — buffering last 10000 items
+logs> grep api_request
+{"level":30,"msg":"api_request","path":"/api/health","status":200,"duration_ms":1}
+…                       ← matches from the buffer (the recent past)
+-- live --
+…                       ← new matches as they arrive
+^C
+logs> (l => { try { return JSON.parse(l) } catch { return null } }) | filter (e => e && e.status) | (e => e.path + " " + e.duration_ms + "ms")
+-- live --
+/api/health 1ms
+/api/health 0ms
+^C
+logs> buffer
+buffer: 551/10000 items (pushed 551, evicted 0)
+logs> exit
+```
+
+The parts worth knowing: **Ctrl-C once** ends the live view *gracefully* —
+the stream finishes, so a query ending in bare `stats` prints its summary
+exactly there; **Ctrl-C twice** hard-cancels a stuck query; the session and
+the held source survive both. A fragment runs twice (buffer, then live), so
+append with `>>`, never `>`. `exit`/Ctrl-D tears the held source down —
+`procs` groups get the SIGTERM→SIGKILL escalation.
 
 ## Tips
 

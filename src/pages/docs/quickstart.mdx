@@ -69,6 +69,7 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   {"name": "Court"}                 # JSON literal — one parsed item
   load 30s 100/s                    # paced ticks: 100/s for 30s (load runs)
   load 10s 50/s, 30s 200/s          # ramp: comma-separated phases, one stream
+  stdin                             # piped stdin, line by line (alias: -)
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -94,6 +95,8 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
 
 `read <path|glob>` yields each matched file's **entire contents** as one item — the fixture-folder source. A bare glob (`fixtures/*.json`) yields *paths*. A stage starting `{` or `[` is a **JSON-literal source**: one parsed item (env-expanded), and invalid JSON is a hard error — it never falls back to shell.
 
+`stdin` (alias `-`) streams whatever is piped into crust — `docker logs -f app | crust -c 'stdin | grep ERROR'` turns any command's output into a pipeline source. (A bare `cmd | crust` without `-c` reads the pipe as a *script*, so data pipes always pair with `-c`.)
+
 ## Transforms
 
 Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all work.
@@ -101,7 +104,7 @@ Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all wor
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  ... | grep TODO                              # any shell command
+  ... | grep TODO                              # native line-buffered grep (-i/-v/-F; fancier flags → system grep)
   ... | (line => line.toUpperCase())           # TS lambda (maps every item)
   ... | filter (line => line.includes('ERR'))  # keep items whose predicate is truthy
   ... | tr '[:lower:]' '[:upper:]'             # standard pipes work
@@ -494,7 +497,7 @@ The line editor runs in raw mode (TTY-only). Reading from a pipe also works — 
 | `Backspace` / `Delete` | Delete left / right |
 | `Ctrl-W` / `Ctrl-U` / `Ctrl-K` | Kill word / start-of-line / end-of-line |
 | `Ctrl-L` | Clear screen |
-| `Ctrl-C` | Cancel line, fresh prompt |
+| `Ctrl-C` | At the prompt: clear the line. While a line runs: **cancel it** — pipeline stops, children die, prompt returns (exit 130) |
 | `Ctrl-D` | EOF — exit if line is empty |
 | `Tab` | `$PATH` complete at start-of-stage, file path elsewhere |
 | `Enter` | Submit line |

@@ -145,6 +145,35 @@ And because it emits a `{target, ready, ms, attempts}` record, it composes —
 `wait :3000/health --timeout 40s | (r => "up after " + r.ms + "ms")` if you
 want boot time in the log.
 
+## Interactive: `logs procs(...)`
+
+Piping `procs` into a filter works, but changing the filter means restarting
+the whole dev stack. The `logs` builtin holds the process group open and
+buffers its recent output; every line typed at its prompt is a pipeline
+fragment run over that buffer, then live:
+
+```bash
+logs procs({web: "bun run dev", api: "bun api.ts"})
+```
+
+```
+logs: items are {proc, line, ts} objects — try (l => l.line) or filter (l => l.proc === "web")
+logs> (l => l.line) | grep -i ready
+[web] ✓ Ready in 158ms          ← from the buffer, even if it scrolled by minutes ago
+-- live --
+^C
+logs> filter (l => l.proc === "api") | (l => l.line)
+-- live --
+…                                ← only api's lines now, same stack still running
+^C
+logs> exit                       ← tears the whole group down (SIGTERM → SIGKILL)
+```
+
+Ctrl-C ends the current view without touching the held processes; `exit` (or
+Ctrl-D) is what stops the stack. Commands with `&&`/`;`/pipes can't appear
+inside the `logs` line itself — put them in a wrapper script and use
+`procs({web: "sh dev-web.sh"})`.
+
 ## With pino-pretty
 
 If your services log NDJSON, normalize each line and hand the merged stream
