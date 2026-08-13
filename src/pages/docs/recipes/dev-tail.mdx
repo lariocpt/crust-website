@@ -176,9 +176,10 @@ inside the `logs` line itself — put them in a wrapper script and use
 
 Pretty rendering works inside the session too: unwrap the `{proc, stream,
 line}` envelope with the normalizer lambda from the pino-pretty section
-below, then end the fragment in `node_modules/.bin/pino-pretty --colorize
---singleLine` — the buffered past and the live stream both render
-colorized.
+below, then end the fragment in `pino-pretty --colorize --singleLine` —
+the buffered past and the live stream both render colorized. (Shell
+stages get npm-run-style PATH, so the bare name resolves from your
+project's `node_modules/.bin`.)
 
 ## With pino-pretty
 
@@ -192,7 +193,7 @@ procs({web: "LOG_FORMAT=json bun run dev", tsc: "tsc -b --watch"}) \
       return JSON.stringify(o && o.msg !== undefined \
         ? Object.assign(o, { app: l.proc }) \
         : { level: l.stream === "stderr" ? 50 : 30, time: Date.now(), msg: l.line, app: l.proc }); }) \
-  | node_modules/.bin/pino-pretty --colorize --singleLine --messageFormat "[{app}] {msg}" --ignore app
+  | pino-pretty --colorize --singleLine --messageFormat "[{app}] {msg}" --ignore app
 ```
 
 Every line arrives timestamped, colorized by level, tagged with its app —
