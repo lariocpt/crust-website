@@ -13,7 +13,7 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  read **/*.log | grep ERROR | wc -l
+  lines **/*.log | grep ERROR | wc -l
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -39,7 +39,7 @@ When you want a structural filter — say, only lines from a specific user — a
   <Fragment slot="bash">
   ```bash
   # grep narrows files to ERROR lines; filter applies the TS predicate per line
-  read **/*.log | grep ERROR | filter (l => l.includes('user=42'))
+  lines **/*.log | grep ERROR | filter (l => l.includes('user=42'))
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -62,7 +62,7 @@ If your logs are JSON-per-line, parsing and projecting is one lambda each.
   ```bash
   # Read each .log file, split into lines, parse as JSON, keep
   # severity=error, project the message field
-  read **/*.json.log
+  lines **/*.json.log
     | grep .
     | (line => JSON.parse(line))
     | filter (j => j.severity === 'error')
@@ -91,7 +91,7 @@ If your logs are JSON-per-line, parsing and projecting is one lambda each.
   <Fragment slot="bash">
   ```bash
   # Extract error codes; filter drops the lines that had none
-  read **/*.log
+  lines **/*.log
     | grep ERROR
     | (l => (l.match(/ERR_[A-Z0-9_]+/) ?? [null])[0])
     | filter (c => c)
@@ -134,7 +134,7 @@ Crust ships a native `tail` source — last-N lines, `tail -F`-style follow, mul
 
   # Multi-file: glob or explicit list. Lines from all files merge into one stream.
   tail logs/*.log | grep ERROR > combined.log
-  tail -F services/*/access.log | (l => l.toUpperCase()) > combined.log
+  tail -F services/*/access.log | (l => l.toUpperCase()) | tee combined.log
   tail -F api.log worker.log scheduler.log
   ```
   </Fragment>
@@ -271,7 +271,7 @@ append with `>>`, never `>`. `exit`/Ctrl-D tears the held source down —
 ## Tips
 
 - **Mix `grep` and lambdas** — `grep` is unbeatable for plain substring/regex filters; reserve lambdas for things grep can't see (JSON shape, async lookups, multi-line state).
-- **`read(path)` ≠ `Bun.file(path).text()`** — `read()` streams lines (`Pipeline<string>`); `Bun.file().text()` returns the whole file. Pick based on whether you can fit the file in memory.
+- **`lines` vs `read` vs `Bun.file().text()`** — the shell stage `read <glob>` yields **whole-file** items (one per file), `lines <glob>` yields **one item per line**, and the TypeScript `read(path)` streams lines like the latter. They print identically on a terminal, so the difference only shows when a downstream `filter`/lambda sees one giant string instead of lines. `grep` masks it by splitting internally — which is why `read **/*.log | grep ERROR | filter (…)` works and swapping those last two stages silently does not.
 - **Pair with `time "label"`** to know how long a forensic query takes — the timer fires even if a downstream stage throws.
 
 ## Related

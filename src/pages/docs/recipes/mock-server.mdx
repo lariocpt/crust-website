@@ -14,25 +14,25 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   <Fragment slot="bash">
   ```bash
   # Local spec
-  mock-server --swagger ./openapi.yaml --port 4000
+  mock-server ./openapi.yaml -p4000
 
   # Remote spec
-  mock-server --swagger https://petstore3.swagger.io/api/v3/openapi.json --port 4747
+  mock-server https://petstore3.swagger.io/api/v3/openapi.json -p4747
 
   # OS-assigned port, bind to localhost only
-  mock-server --swagger ./spec.json --port 0 --host 127.0.0.1
+  mock-server ./spec.json -p0 --host 127.0.0.1
 
   # Stateful mode — what you POST is what you GET back
-  mock-server --swagger ./openapi.yaml --port 4000 --stateful
+  mock-server ./openapi.yaml -p4000 --stateful
 
   # Persistent CRUD — the sqlite file survives restarts; seed data on first boot
-  mock-server --swagger ./openapi.yaml --port 4000 --state ./mock.sqlite --seed ./seed.json
+  mock-server ./openapi.yaml -p4000 --state ./mock.sqlite --seed ./seed.json
 
   # Reject spec-violating requests with 422
-  mock-server --swagger ./openapi.yaml --port 4000 --stateful --validate
+  mock-server ./openapi.yaml -p4000 --stateful --validate
 
   # Validation proxy — forward to a real backend, record violations
-  mock-server --swagger ./openapi.yaml --port 4000 \
+  mock-server ./openapi.yaml -p4000 \
     --proxy http://localhost:8080 --report violations.ndjson
   ```
   </Fragment>
@@ -120,7 +120,7 @@ Example mode replays the same spec example forever — fine for "does the client
 A full round trip, driven as a crust capture chain — the same vocabulary as your [smoke suites](/docs/recipes/api-smoke-tests/):
 
 ```bash
-mock-server --swagger ./pets-openapi.json --port 4000 --stateful --validate
+mock-server ./pets-openapi.json -p4000 --stateful --validate
 ```
 
 ```bash
@@ -173,7 +173,7 @@ The seed file maps collection path templates to entity arrays — items without 
 ```
 
 ```bash
-mock-server --swagger ./things-openapi.json --port 4000 --state ./mock.sqlite --seed ./seed.json
+mock-server ./things-openapi.json -p4000 --state ./mock.sqlite --seed ./seed.json
 ```
 
 ```text
@@ -189,7 +189,7 @@ Everything from the envelope section works the same — the store just outlives 
 
 ```bash
 # terminal A
-mock-server --swagger ./things-openapi.json --port 4000 --state ./mock.sqlite --seed ./seed.json
+mock-server ./things-openapi.json -p4000 --state ./mock.sqlite --seed ./seed.json
 ```
 
 ```bash
@@ -243,7 +243,7 @@ export default async () => {
 ```
 
 ```bash
-test-pipes --target mock-state.pipes
+test-pipes mock-state.pipes
 #   PASS  mock-state.pipes:2  {"thing": {"name": "Piper", "kind": "widget"}} | POST $BASE/api/things | …
 #   ...
 # 1 file(s): 5 pass, 0 fail
@@ -295,7 +295,7 @@ The governing rule: **a schema the walker can't judge validates successfully.** 
 The proxy flips the question. The mock asks "does my client speak the spec?"; the proxy asks "**does my real backend speak the spec?**" — while your existing tests provide the traffic:
 
 ```bash
-mock-server --swagger ./openapi.json --port 4000 \
+mock-server ./openapi.json -p4000 \
   --proxy http://localhost:8080 --report violations.ndjson
 ```
 
@@ -353,11 +353,11 @@ That's the drift the type checker can't see: the spec says `priority` is an inte
 
 ```bash
 # 1. boot the proxy in front of the service under test
-crust -c 'mock-server --swagger ./openapi.json --port 4000 --proxy http://localhost:8080 --report violations.ndjson' &
+crust -c 'mock-server ./openapi.json -p4000 --proxy http://localhost:8080 --report violations.ndjson' &
 crust -c 'wait :4000/things --timeout 20s'
 
 # 2. run the EXISTING test suite through the proxy
-BASE=http://localhost:4000 crust -c "test-pipes --target 'tests/**/*.pipes'"
+BASE=http://localhost:4000 crust -c "test-pipes 'tests/**/*.pipes'"
 
 # 3. gate: zero recorded violations, or fail with the count
 crust -c 'GET :4000/__crust/violations | (r => r.json()) | assert (v => v.count === 0)'
@@ -373,8 +373,8 @@ The mock is just an HTTP server — drive it with normal crust pipelines.
   <Fragment slot="bash">
   ```bash
   # Smoke-test every fixture against the mock
-  mock-server --swagger ./openapi.yaml --port 4000 &
-  test-fixture --target fixtures/*.crust.ts --out report.md
+  mock-server ./openapi.yaml -p4000 &
+  test-fixture fixtures/*.crust.ts -o report.md
 
   # Burn-in: 10k requests across 100 workers
   range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats

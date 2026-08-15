@@ -14,15 +14,15 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   <Fragment slot="bash">
   ```bash
   # Spec in; one <tag>.gen.crust.ts per OpenAPI tag out, plus flow suites
-  gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
+  gen-fixtures ./openapi.json
   # generated 23 cases across 1 files -> /app/tests/gen
   # generated 1 CRUD flows -> /app/tests/gen/flows/flows.gen.pipes
 
   # Run the negative matrix like any other fixtures
-  test-fixture --target 'tests/gen/*.gen.crust.ts' --threads 8 --timeout 5000
+  test-fixture 'tests/gen/*.gen.crust.ts' -j8 -t5000
 
   # Run the generated CRUD flows — the sibling setup module is auto-detected
-  test-pipes --target tests/gen/flows/flows.gen.pipes
+  test-pipes tests/gen/flows/flows.gen.pipes
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -47,14 +47,14 @@ The `--out` directory is **deleted and recreated on every run** — never edit g
 Because generation is deterministic, the generated directory works like a lockfile: check it in, regenerate on spec changes, and read the diff as a *review artifact*. A new required field shows up as new 400 cases; a loosened `maxLength` shows up as a deleted boundary case. If the diff surprises you, the spec change did something you didn't intend — you caught it before the server did.
 
 ```bash
-gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
+gen-fixtures ./openapi.json
 git diff --stat tests/gen         # what did the spec change actually change?
 ```
 
 In CI, the same idea catches a stale checked-in matrix:
 
 ```bash
-crust -c 'gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts'
+crust -c 'gen-fixtures ./openapi.json'
 git diff --exit-code tests/gen    # fails the job if someone changed the spec without regenerating
 ```
 
@@ -170,14 +170,14 @@ The generated `flows.gen.setup.ts` adapts your existing setup module — it call
 **Qualification** — a collection path `P` gets a flow when: it has a POST with an `application/json` request schema and a documented 2xx; an item path `P/{param}` with at least one of GET/PUT/PATCH/DELETE exists; `P` carries no path params beyond the scope param (nested collections are skipped with a stdout notice); and the created id's location is derivable from the POST's 2xx response — the media `example`, else `schema.properties`: top-level `id`, else the first object-valued property containing an `id`. Not derivable → skipped with a notice naming the path.
 
 ```bash
-gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts --no-flows   # matrix only
+gen-fixtures ./openapi.json --no-flows   # matrix only
 ```
 
 **Wiring flows into the suite** — a flow file is a normal `.pipes` file, so it runs alongside your hand-written ones:
 
 ```bash
 # everything at once: hand-written suites AND generated flows
-test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
+test-pipes 'tests/**/*.pipes' -b -t5000
 ```
 
 Each `.pipes` file is hermetic (env snapshotted/restored per file), so generated flows can't leak `$GEN_*` vars into your hand-written suites — and since the spec can't know your table names, add `sql`-assert lines in a hand-written `.pipes` file when you want the DB-level counterpart of a flow.

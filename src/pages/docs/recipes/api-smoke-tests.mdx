@@ -106,8 +106,8 @@ The negative block is not decoration. A suite that only checks happy paths will 
 Run one file, or a tree of them:
 
 ```bash
-test-pipes --target smoke.pipes
-test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
+test-pipes smoke.pipes
+test-pipes 'tests/**/*.pipes' -b -t5000
 ```
 
 ```text
@@ -143,8 +143,8 @@ export default async () => {
 ```
 
 ```bash
-test-pipes --target smoke.pipes                       # sibling smoke.setup.ts auto-detected
-test-pipes --target smoke.pipes --setup ./seed.ts     # or explicit
+test-pipes smoke.pipes                       # sibling smoke.setup.ts auto-detected
+test-pipes smoke.pipes -s ./seed.ts     # or explicit
 ```
 
 ### Per-file hermeticity
@@ -157,7 +157,7 @@ The suite is one command with meaningful exit codes, so CI wiring is two lines �
 
 ```bash
 crust -c 'wait :3000/api/health --timeout 40s --interval 2s'
-crust -c "test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000"
+crust -c "test-pipes 'tests/**/*.pipes' -b -t5000"
 ```
 
 ## The TypeScript API — `.crust.ts` fixtures
@@ -174,8 +174,8 @@ compiled runner doesn't resolve third-party npm packages).
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  test-fixture --target 'fixtures/**/*.crust.ts'
-  test-fixture --target fixtures/users.crust.ts --out report.md
+  test-fixture 'fixtures/**/*.crust.ts'
+  test-fixture fixtures/users.crust.ts -o report.md
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -293,7 +293,7 @@ The shape: `POST → JSON → id → query → row → predicate`. Each `|` is o
     | POST :3000/users \
     | (r => r.json()) \
     | (u => u.id) \
-    | (id => (await Bun.sql`select name, email from users where id = ${id}`)[0]) \
+    | (async id => (await Bun.sql`select name, email from users where id = ${id}`)[0]) \
     | assert (row => row?.email === 'lario@example.com' && row?.name === 'Lario')
   ```
   </Fragment>
@@ -386,7 +386,7 @@ export default {
 ## Reports & exit codes
 
 ```bash
-test-fixture --target 'fixtures/**/*.crust.ts' --threads 8 --out report.json
+test-fixture 'fixtures/**/*.crust.ts' -j8 -o report.json
 ```
 
 Report format is picked from `--out`'s extension: `.json`, `.md`, anything else is plain text. With no `--out`, you get a colored folder-grouped summary on stdout.

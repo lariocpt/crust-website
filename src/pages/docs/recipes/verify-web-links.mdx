@@ -14,19 +14,21 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   <Fragment slot="bash">
   ```bash
   # Direct sitemap URL
-  verify-web-links --site-map-url https://example.com/sitemap.xml
+  verify-web-links https://example.com/sitemap.xml
 
   # Auto-discover: probes /robots.txt for `Sitemap:` lines, falls back to /sitemap.xml
-  verify-web-links --base-url https://example.com
+  verify-web-links https://example.com
 
   # Full SEO sweep: crawl + diff OG / meta against fixtures
-  verify-web-links --base-url https://example.com --fixtures site/*.meta.crust.ts
+  verify-web-links https://example.com --fixtures site/*.meta.crust.ts
 
-  # Local sitemap (e.g. from `astro build` output)
-  verify-web-links --site-map-url ./dist/sitemap-0.xml --base-url https://example.com
+  # Local sitemap (e.g. from `astro build` output). The URLs inside it are
+  # absolute, so no base URL is needed — and passing one is an error: the
+  # sitemap and base-url forms are mutually exclusive.
+  verify-web-links ./dist/sitemap-0.xml
 
   # Sitemap-only, no recursion into internal links
-  verify-web-links --site-map-url ./public/sitemap.xml --no-recurse
+  verify-web-links ./public/sitemap.xml --no-recurse
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -60,7 +62,7 @@ External (off-origin) links are skipped by default. Pass `--include-external` to
 Some URLs redirect *because the site is working* — WooCommerce bounces an empty-cart `/checkout/` to `/cart/`, `/wp-admin/` bounces to the login page. Exclude those subtrees instead of silencing all redirect warnings:
 
 ```bash
-crust -c "verify-web-links --base-url https://shop.example.com \
+crust -c "verify-web-links https://shop.example.com \
   --exclude /checkout/ --exclude /wp-admin/"
 ```
 
@@ -124,15 +126,15 @@ Keys are the literal property/name attribute — `title`, `description`, `og:tit
 
 ```bash
 # After a build, run against the deployed preview URL
-verify-web-links --base-url "$PREVIEW_URL" --fixtures site/**/*.meta.crust.ts
+verify-web-links "$PREVIEW_URL" --fixtures site/**/*.meta.crust.ts
 ```
 
 Or chain with other crust builtins for a full pre-deploy gate:
 
 ```bash
-mock-server --swagger ./openapi.yaml --port 4000 &
-test-fixture --target fixtures/*.crust.ts
-verify-web-links --base-url http://localhost:3000 --fixtures site/*.meta.crust.ts
+mock-server ./openapi.yaml -p4000 &
+test-fixture fixtures/*.crust.ts
+verify-web-links http://localhost:3000 --fixtures site/*.meta.crust.ts
 ```
 
 ## Exit codes
@@ -146,4 +148,4 @@ verify-web-links --base-url http://localhost:3000 --fixtures site/*.meta.crust.t
 ## Related
 
 - [API smoke tests](/docs/recipes/api-smoke-tests/) — `test-fixture` for the API surface; `verify-web-links` for the public site.
-- [Mock server](/docs/recipes/mock-server/) — pair with `verify-web-links --base-url http://localhost:PORT` to smoke-test rendered pages against mocked backends.
+- [Mock server](/docs/recipes/mock-server/) — pair with `verify-web-links http://localhost:PORT` to smoke-test rendered pages against mocked backends.

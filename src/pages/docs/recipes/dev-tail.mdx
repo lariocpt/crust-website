@@ -138,7 +138,7 @@ In a CI script that's one honest line between "boot" and "test":
 
 ```bash
 crust -c 'wait :3000/health --timeout 40s --interval 2s'
-crust -c "test-pipes --target 'tests/**/*.pipes' --bail"
+crust -c "test-pipes 'tests/**/*.pipes' -b"
 ```
 
 And because it emits a `{target, ready, ms, attempts}` record, it composes —

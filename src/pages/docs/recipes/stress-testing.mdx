@@ -179,13 +179,13 @@ snippets — is its own recipe: [CI load gates](/docs/recipes/ci-load-gates/).
   <Fragment slot="bash">
   ```bash
   # 1000 iterations, 32 concurrent workers, JSON report
-  test-fixture --target stress.crust.ts --count 1000 --threads 32 --out report.json
+  test-fixture stress.crust.ts -n1000 -j32 -o report.json
 
   # Same idea, glob of fixtures, Markdown summary
-  test-fixture --target 'fixtures/**/*.crust.ts' --count 500 --threads 16 --out report.md
+  test-fixture 'fixtures/**/*.crust.ts' -n500 -j16 -o report.md
 
   # Long runs: cap each request, stop scheduling on first failure
-  test-fixture --target stress.crust.ts --count 10000 --threads 32 --timeout 5000 --bail
+  test-fixture stress.crust.ts -n10000 -j32 -t5000 -b
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -216,7 +216,7 @@ To vary inputs across iterations, use **thunks** in `input` together with the `r
   <Fragment slot="bash">
   ```bash
   # Run the randomized fixture against your service
-  test-fixture --target stress.crust.ts --count 1000 --threads 32 --out report.json
+  test-fixture stress.crust.ts -n1000 -j32 -o report.json
   ```
   </Fragment>
   <Fragment slot="ts">
