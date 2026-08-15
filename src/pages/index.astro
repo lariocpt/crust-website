@@ -47,13 +47,13 @@ import FeatureCard from '../components/FeatureCard.astro';
 				</FeatureCard>
 				<FeatureCard icon="🧪" title="Fixture testing & stress mode">
 					<p>
-						<code>test-fixture --count 1000 --threads 32</code> runs your
+						<code>test-fixture 'fixtures/*.crust.ts' -n1000 -j32</code> runs your
 						<code>.crust.ts</code> fixtures with p50/p95/p99 reports.
 					</p>
 				</FeatureCard>
 				<FeatureCard icon="🌐" title="OpenAPI mock, validator & proxy">
 					<p>
-						<code>mock-server --swagger ./openapi.yaml</code> — spec-driven mock with
+						<code>mock-server ./openapi.yaml</code> — spec-driven mock with
 						envelope-aware <code>--stateful</code> CRUD — persistent via <code>--state</code>
 						sqlite/postgres, seedable via <code>--seed</code> — <code>--validate</code> 422s,
 						and a <code>--proxy</code> mode that audits a real backend's conformance.
@@ -68,7 +68,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 				</FeatureCard>
 				<FeatureCard icon="🔗" title="Verify web links + SEO">
 					<p>
-						<code>verify-web-links --base-url https://example.com</code> — crawl your
+						<code>verify-web-links https://example.com</code> — crawl your
 						sitemap, catch broken links and dead anchors, diff Open Graph tags against
 						fixtures.
 					</p>

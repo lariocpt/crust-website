@@ -254,8 +254,8 @@ Loads `.env` into the live session (`process.env`). `overwrite` is the default; 
   <Fragment slot="bash">
   ```bash
   dotenv                            # load ./.env, overwrite mode
-  dotenv --config .env.local
-  dotenv --config .env.local --append
+  dotenv .env.local
+  dotenv .env.local --append
   dotenv status                     # load history + per-key origin
   dotenv clear                      # restore pre-first-load snapshot
   ```
@@ -314,14 +314,14 @@ Runs `.crust.ts` fixture files against an HTTP service. Each file is a normal TS
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  test-fixture --target fixtures/*.crust.ts
-  test-fixture --target fixtures/users.crust.ts --out report.md
-  test-fixture --target 'fixtures/**/*.crust.ts' --threads 8 --out report.json
-  test-fixture --target stress.crust.ts --count 1000 --threads 32 --out report.json
+  test-fixture fixtures/*.crust.ts
+  test-fixture fixtures/users.crust.ts -o report.md
+  test-fixture 'fixtures/**/*.crust.ts' -j8 -o report.json
+  test-fixture stress.crust.ts -n1000 -j32 -o report.json
 
   # --timeout fails any fixture whose request runs longer (its own
   # input.signal wins); --bail stops starting new fixtures on first failure
-  test-fixture --target 'gen/*.gen.crust.ts' --timeout 5000 --bail
+  test-fixture 'gen/*.gen.crust.ts' -t5000 -b
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -355,8 +355,8 @@ Runs `.pipes` files — one shorthand fixture pipeline per line, `#` comments, s
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  test-pipes --target smoke.pipes
-  test-pipes --target 'tests/**/*.pipes' --bail --timeout 5000
+  test-pipes smoke.pipes
+  test-pipes 'tests/**/*.pipes' -b -t5000
 
   # smoke.pipes:
   # {"name":"Court"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | expect 201
@@ -383,9 +383,9 @@ Generates the negative-test matrix (401/403/404 + per-field 400s and boundary vi
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  gen-fixtures --swagger ./openapi.json --out tests/gen --setup ./tests/gen-setup.ts
-  test-fixture --target 'tests/gen/*.gen.crust.ts' --threads 8
-  test-pipes --target tests/gen/flows/flows.gen.pipes    # generated CRUD flows
+  gen-fixtures ./openapi.json
+  test-fixture 'tests/gen/*.gen.crust.ts' -j8
+  test-pipes tests/gen/flows/flows.gen.pipes    # generated CRUD flows
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -410,12 +410,12 @@ Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  mock-server --swagger ./openapi.yaml --port 4000
-  mock-server --swagger https://petstore3.swagger.io/api/v3/openapi.json --port 4747
-  mock-server --swagger ./spec.json --port 0 --host 127.0.0.1     # OS-assigned port
-  mock-server --swagger ./openapi.yaml --port 4000 --stateful     # in-memory CRUD
-  mock-server --swagger ./openapi.yaml --port 4000 --validate     # 422 on spec-violating requests
-  mock-server --swagger ./openapi.yaml --port 4000 \
+  mock-server ./openapi.yaml -p4000
+  mock-server https://petstore3.swagger.io/api/v3/openapi.json -p4747
+  mock-server ./spec.json -p0 --host 127.0.0.1     # OS-assigned port
+  mock-server ./openapi.yaml -p4000 --stateful     # in-memory CRUD
+  mock-server ./openapi.yaml -p4000 --validate     # 422 on spec-violating requests
+  mock-server ./openapi.yaml -p4000 \
     --proxy http://localhost:8080 --report violations.ndjson      # conformance-audit a real backend
   ```
   </Fragment>
@@ -442,9 +442,9 @@ Crawls a site from its sitemap, verifies every link is reachable, and optionally
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
-  verify-web-links --site-map-url https://example.com/sitemap.xml
-  verify-web-links --base-url https://example.com                 # auto-discover via robots.txt
-  verify-web-links --base-url https://example.com --fixtures site/*.meta.crust.ts
+  verify-web-links https://example.com/sitemap.xml
+  verify-web-links https://example.com                 # auto-discover via robots.txt
+  verify-web-links https://example.com --fixtures site/*.meta.crust.ts
   ```
   </Fragment>
   <Fragment slot="ts">

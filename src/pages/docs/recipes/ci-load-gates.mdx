@@ -104,7 +104,20 @@ One property makes this CI-safe: **the artifact is written before the summary re
 | An `assert` predicate returned falsy (or its upstream was empty) | `1` |
 | An `expect` found mismatched statuses at drain | `1` |
 | Multi-line `-c` script: any line fails | that line's code — **fail-fast**, later lines never run |
+| A stage's lambda **threw** — including under `parallel N` | `1` |
+| A spawned shell stage exited nonzero (`\| tee bad/path`, `\| false`) | that code |
+| `assert` was handed an **empty** `stats` summary (0 items measured) | `1` |
 | Builtin runners (`test-pipes`, `test-fixture`): bad args / no files | `2` |
+
+A gate that measured **nothing** is not a pass. `stats` over an empty stream is
+tagged `empty: true` and `assert` refuses it — `{count: 0, p95: 0}` satisfies
+`s => s.p95 < 200`, so a run whose glob matched nothing used to go green. A bare
+`… | stats` with no assertion still prints the tagged summary and exits 0.
+
+Percentiles come from a fixed histogram: constant memory on a multi-hour soak,
+accurate to within a bucket (0.1ms below 100ms, 1ms below 1s), and reported as
+the bucket's upper bound — never faster than reality. `count` and `meanMs` stay
+exact.
 
 `crust -c` with a multi-line string stops at the first failing line and exits with *its* code — a later successful line can't mask an earlier failure. That's what makes multi-line `-c` scripts safe as single CI steps.
 

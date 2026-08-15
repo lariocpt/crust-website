@@ -81,6 +81,35 @@ pipeline {
                 '''
             }
         }
+        stage('Grammar') {
+            steps {
+                sh '''
+                    set -eu
+                    # The site's code blocks are hand-copied from the crust docs with no
+                    # generation step, so they rot silently — this repo has no way to import
+                    # crust's lexer, but it can RUN the published binary: `crust --check`
+                    # parses a line without executing it (no file opened, nothing spawned),
+                    # so examples referencing :3000 or fixtures/*.json check clean here.
+                    #
+                    # Runs before Deploy on purpose: publishing an example that does not
+                    # parse is the exact failure this project has shipped before.
+                    CRUST=/srv/apps/tools/crust/latest/crust
+                    test -x "$CRUST" || { echo "crust binary not found at $CRUST"; exit 1; }
+
+                    # Same sibling-container shape as Build (workspace is a named volume,
+                    # so docker cp both ways — never -v "$PWD:/w").
+                    CID=$(docker create -w /w oven/bun:1 sh -c '
+                        set -eu
+                        cd /w
+                        bun scripts/lint-examples.mjs /w/crust-bin
+                    ')
+                    trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
+                    docker cp "$PWD/." "$CID:/w" >/dev/null
+                    docker cp "$CRUST" "$CID:/w/crust-bin" >/dev/null
+                    docker start -a "$CID"
+                '''
+            }
+        }
         stage('Deploy') {
             steps {
                 sh '''
