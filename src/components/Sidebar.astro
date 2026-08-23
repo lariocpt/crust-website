@@ -1,5 +1,9 @@
 ---
-const path = Astro.url.pathname.replace(/\/$/, '');
+import { href as withBase, routePath } from '../lib/site';
+
+// Compare against base-stripped routes; the hrefs below stay written as plain
+// site-root paths and get the base applied at render.
+const path = routePath(Astro.url.pathname).replace(/\/$/, '');
 
 const sections: { title: string; links: { label: string; href: string }[] }[] = [
 	{
@@ -45,7 +49,7 @@ const isActive = (href: string) => {
 					<ul>
 						{section.links.map((l) => (
 							<li>
-								<a href={l.href} class:list={[{ active: isActive(l.href) }]}>
+								<a href={withBase(l.href)} class:list={[{ active: isActive(l.href) }]}>
 									{l.label}
 								</a>
 							</li>

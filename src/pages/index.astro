@@ -2,6 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 import Hero from '../components/Hero.astro';
 import FeatureCard from '../components/FeatureCard.astro';
+import { href } from '../lib/site';
 ---
 
 <Layout>
@@ -91,7 +92,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 				Hand-picked workflows you can lift into your own pipelines today.
 			</p>
 			<div class="recipe-grid">
-				<a class="recipe" href="/docs/recipes/stress-testing/">
+				<a class="recipe" href={href('/docs/recipes/stress-testing/')}>
 					<h3>Stress testing</h3>
 					<p>
 						Paced <code>load</code> scenarios with ramps and drop accounting — plus
@@ -99,7 +100,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>
-				<a class="recipe" href="/docs/recipes/ci-load-gates/">
+				<a class="recipe" href={href('/docs/recipes/ci-load-gates/')}>
 					<h3>CI load gates</h3>
 					<p>
 						<code>stats | assert (s =&gt; s.p95 &lt; 200)</code> — thresholds, baselines
@@ -107,7 +108,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>
-				<a class="recipe" href="/docs/recipes/mock-server/">
+				<a class="recipe" href={href('/docs/recipes/mock-server/')}>
 					<h3>OpenAPI mock server</h3>
 					<p>
 						Boot a Bun.serve mock from any Swagger / OpenAPI 3.x spec — stateful CRUD
@@ -116,7 +117,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>
-				<a class="recipe" href="/docs/recipes/api-smoke-tests/">
+				<a class="recipe" href={href('/docs/recipes/api-smoke-tests/')}>
 					<h3>API smoke tests</h3>
 					<p>
 						<code>read fixtures/*.json | POST :3000/users | expect 201</code> in one
@@ -124,7 +125,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>
-				<a class="recipe" href="/docs/recipes/log-mining/">
+				<a class="recipe" href={href('/docs/recipes/log-mining/')}>
 					<h3>Log mining</h3>
 					<p>
 						Forensic queries over log trees, live streams from any command via
@@ -133,7 +134,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read recipe →</span>
 				</a>
-				<a class="recipe" href="/docs/recipes/heap-snapshots/">
+				<a class="recipe" href={href('/docs/recipes/heap-snapshots/')}>
 					<h3>Heap snapshots during testing</h3>
 					<p>
 						A Bun <code>[test].preload</code> that writes a
@@ -154,7 +155,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 				shell with <code>crust -c</code>, or live in the REPL.
 			</p>
 			<div class="cta-actions">
-				<a class="btn primary" href="/docs/intro/">Get started</a>
+				<a class="btn primary" href={href('/docs/intro/')}>Get started</a>
 			</div>
 		</div>
 	</section>

@@ -1,5 +1,6 @@
 ---
 import InstallBlock from './InstallBlock.astro';
+import { href } from '../lib/site';
 ---
 
 <section class="hero">
@@ -22,8 +23,8 @@ import InstallBlock from './InstallBlock.astro';
 		</div>
 
 		<div class="ctas">
-			<a class="btn primary" href="/docs/quickstart/">Quickstart →</a>
-			<a class="btn ghost" href="/docs/intro/">Read the docs</a>
+			<a class="btn primary" href={href('/docs/quickstart/')}>Quickstart →</a>
+			<a class="btn ghost" href={href('/docs/intro/')}>Read the docs</a>
 		</div>
 
 		<div class="demo">

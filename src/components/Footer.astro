@@ -1,4 +1,6 @@
 ---
+import { href, isPublic, REPO_URL } from '../lib/site';
+
 const year = new Date().getFullYear();
 ---
 
@@ -10,9 +12,10 @@ const year = new Date().getFullYear();
 			<span class="muted">— devops pipelines, freshly baked</span>
 		</div>
 		<nav class="links" aria-label="Footer">
-			<a href="/docs/intro/">Docs</a>
-			<a href="/docs/quickstart/">Quickstart</a>
-			<a href="/docs/recipes/">Recipes</a>
+			<a href={href('/docs/intro/')}>Docs</a>
+			<a href={href('/docs/quickstart/')}>Quickstart</a>
+			<a href={href('/docs/recipes/')}>Recipes</a>
+			{isPublic && <a href={REPO_URL}>GitHub</a>}
 		</nav>
 		<small class="copy">© {year} · MIT licensed</small>
 	</div>
