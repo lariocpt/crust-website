@@ -1,46 +1,54 @@
-# Astro Starter Kit: Basics
+# crust-website
 
-```sh
-bun create astro@latest -- --template basics
+The documentation site for [crust](https://github.com/lariocpt/crust) — a
+pipeline-first devops toolkit built on Bun.
+
+Astro 6 + MDX, static output, built with Bun.
+
+```bash
+bun install
+bun run dev      # http://localhost:4321
+bun run build    # -> dist/
+bun run preview
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Two build modes
 
-## 🚀 Project Structure
+One codebase, two deployment targets. The mode is chosen entirely by build-time
+environment variables, so flipping between them is a config change, never a code
+change.
 
-Inside of your Astro project, you'll see the following folders and files:
+| | LAN (default) | Public |
+|---|---|---|
+| Canonical host | `https://crust.in.drlario.org` | whatever `SITE_URL` says |
+| Install command shown | LAN artifact plane | `curl … githubusercontent … \| bash` |
+| Repo link in header | hidden | shown |
+| `PUBLIC_SITE` | unset | `1` |
 
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
+```bash
+# LAN build — what Jenkins runs, and the default for a bare `bun run build`
+bun run build
+
+# Public build (e.g. GitHub Pages under a subpath)
+PUBLIC_SITE=1 SITE_URL=https://lariocpt.github.io/crust-website BASE_PATH=/crust-website bun run build
 ```
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+`BASE_PATH` exists because a GitHub Pages *project* site is served from a
+subpath. Internal links go through `src/lib/site.ts` so they pick it up; use
+`href(...)` there rather than hardcoding a root-relative path.
 
-## 🧞 Commands
+## Examples are checked, not trusted
 
-All commands are run from the root of the project, from a terminal:
+Every `bash`/`crust` code block on this site is run through `crust --check`,
+which parses a line without executing it. The site cannot import crust's lexer
+(separate repo), so the real binary is the bridge:
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `bun install`             | Installs dependencies                            |
-| `bun dev`             | Starts local dev server at `localhost:4321`      |
-| `bun build`           | Build your production site to `./dist/`          |
-| `bun preview`         | Preview your build locally, before deploying     |
-| `bun astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `bun astro -- --help` | Get help using the Astro CLI                     |
+```bash
+bun scripts/lint-examples.mjs /path/to/crust
+```
 
-## 👀 Want to learn more?
+Jenkins runs this as its `Grammar` stage against the binary it already mounts.
+The linter fails if it finds *zero* examples, on the theory that a broken
+extractor should not look like clean docs.
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+MIT © 2026 Lario Borges

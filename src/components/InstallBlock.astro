@@ -1,15 +1,15 @@
 ---
+import { INSTALL_COMMAND } from '../lib/site';
+
 interface Props {
 	command?: string;
 	label?: string;
 }
-// The LAN artifact plane, not GitHub. install.sh resolves crust through
-// apps.in.drlario.org/index.tsv and verifies the published sha256 before installing, so this
-// one-liner needs no clone, no Bun on the target machine, and no public repo.
-const {
-	command = 'curl -fsSL https://apps.in.drlario.org/install.sh | bash -s -- crust',
-	label = 'Install',
-} = Astro.props;
+// The default follows the build mode (see src/lib/site.ts): the LAN artifact
+// plane by default, the public installer under PUBLIC_SITE=1. Either way the
+// one-liner verifies the published sha256 and needs no clone and no Bun on the
+// target machine.
+const { command = INSTALL_COMMAND, label = 'Install' } = Astro.props;
 ---
 
 <div class="install" data-install>
