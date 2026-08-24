@@ -83,7 +83,7 @@ load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/baseline.json
 }
 ```
 
-`summary` is exactly the stdout summary object; runs with `--every` also carry a `windows` array. The path is env-expanded (`--out $RUN_DIR/health.json`); only `.json` is supported. Commit the baseline, or stash it as a CI artifact.
+`summary` is exactly the stdout summary object; runs with `--every` also carry a `windows` array. The path is env-expanded (`--out $RUN_DIR/health.json` — and everywhere crust expands, `${NAME:-default}` works with POSIX `:-` semantics); only `.json` is supported. Commit the baseline, or stash it as a CI artifact. For gates that need secrets or targets from a file, `crust --env-file .env.load -c '…'` loads a dotenv before any run mode — and a missing file exits 2 loudly instead of measuring the wrong thing.
 
 **Compare** — `assert` awaits async predicates, so the current run can read the baseline back with `Bun.file`:
 
