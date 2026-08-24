@@ -1,0 +1,62 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-procs
+description: One tail for a whole dev stack — procs() merges long-lived commands into a pipeable stream with readiness probes, liveness probes, dependency ordering and process-group teardown, plus wait as a CI one-liner.
+---
+
+**`crust-procs`** teaches an agent to supervise processes as a *stream* rather than as terminal output — and to gate CI on readiness instead of on `sleep`.
+
+## procs() — the one-tail dev runner
+
+```crust
+procs({web: "bun run dev", api: "bun api.ts"}) | (l => l.proc + " | " + l.line)
+```
+
+Every stdout and stderr line becomes `{proc, stream, line}` — a **pipeline item, not text**. So it can be grepped, transformed and counted like anything else. Streams are `stdout`, `stderr`, `exit`, `ready` and `live`.
+
+The full spec form gives each process its own environment, ordering and health:
+
+```crust
+procs({ db: {cmd: "docker compose up pg", ready: "port:5432"}, api: {cmd: "bun api.ts", after: "db", ready: ":3001/health", live: {url: ":3001/health", failures: 3}, restart: {max: 3}}, web: {cmd: "bun run dev", after: "api", env: {PORT: "3001"}} })
+```
+
+- **`ready:`** — `":3001/health"` or any 2xx URL, or `"port:5432"` for a TCP connect. On timeout a restartable process is killed and respawned; a non-restartable one **fails the whole pipeline**, which is the CI semantic you want.
+- **`live:`** — liveness for the unhealthy-but-alive case. Arms once the process is up and emits `probe failed (k/N)`, `recovered after k failed probe(s)`, `unhealthy after N consecutive failed probe(s)`.
+- **`after:`** — a name or list; the process spawns only once its dependencies are ready. Unknown names, self-dependencies and cycles throw *before* anything spawns.
+- **`restart: true`** — respawn on unexpected exit with 250ms→2s backoff. Uptime over 10s **while ready** resets it, so a process that hangs un-ready until its kill never earns a reset. Ctrl-C never respawns.
+- **Teardown** — children run in their own process groups: SIGTERM to all, 3s grace, then SIGKILL, so grandchildren from `sh -c` don't survive.
+
+## Log mining on the merged stream
+
+Because items are objects, the whole stack's output is queryable:
+
+```crust
+procs({api: "bun api.ts", worker: "bun worker.ts"}) | (l => { try { return JSON.parse(l.line) } catch { return { level: 30, msg: l.line, proc: l.proc } } }) | filter (e => e.level >= 40) | (e => "WARN+ " + (e.msg ?? ""))
+```
+
+Note the `filter` — a plain lambda returning `null` for the sub-WARN entries would print a literal `null` line for every one of them.
+
+To iterate on filters *without* restarting the stack, hold it in a `logs` session instead. It keeps the group running and buffers recent output, so each line you type runs over the buffer and then live until Ctrl-C:
+
+```crust
+logs procs({api: "bun api.ts", worker: "bun worker.ts"})
+```
+
+## wait — readiness as a one-liner
+
+```crust
+wait :3001/api/health --timeout 40s --interval 2s
+```
+
+Blocks until the target answers, emits `{target, ready: true, ms, attempts}` and exits 0; not ready in time is an error and exit 1. This is the thing that replaces hand-rolled curl-and-sleep retry loops in CI.
+
+## Traps
+
+- `procs` is **source-only** — it must be the first stage, and spec keys must be unique names.
+- The merged stream **never ends** while a `restart: true` child keeps respawning. Bound it with a downstream condition or stop it with Ctrl-C.
+- `FORCE_COLOR=0` is forced on children so lines stay parseable.
+- To capture the stream, end with a shell stage: `procs({…}) | cat > file`. A bare `procs(...) > file` does **not** work — the `>` lands inside the `procs(...)` expression and is evaluated as JavaScript.
+
+## Related
+
+- [One dev tail](/docs/recipes/dev-tail/) · [Log mining](/docs/recipes/log-mining/)

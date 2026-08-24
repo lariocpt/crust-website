@@ -1,0 +1,107 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-pipelines
+description: The foundation skill — how crust classifies a stage from its first token, where $VAR expands, request chaining with capture, and the traps agents fall into (a bare lambda MAPS, it never filters).
+---
+
+**`crust-pipelines`** teaches an agent the grammar itself: how to pick a source, compose stages, chain requests, and — most valuably — which mistakes look correct but aren't. The other four skills assume it.
+
+Install it with the rest:
+
+```bash
+skills install
+```
+
+## What the agent learns
+
+### A stage is classified by its first token
+
+This is the single most important idea, and the one an agent gets wrong without help. crust does not have a fixed command list — it looks at the head of each `|`-separated stage and decides what kind of stage it is. Anything it doesn't recognise is handed to `sh -c` untouched, so ordinary shell keeps working.
+
+| You type | You get |
+|---|---|
+| `range(0, 9)` | numbers 0..9 inclusive, one item each |
+| `**/*.ts` | glob source — file **paths** |
+| `lines **/*.log` | one item per **line** across every match |
+| `read fixtures/*.json` | whole-file **contents**, one item per file |
+| `tail -F app.log` | native tail source, bounded backward read |
+| `stdin` (alias `-`) | piped-stdin source, one item per line |
+| `grep ERROR` | native line-buffered grep — follow streams don't stall |
+| `{"name": "x"}` | JSON-literal source — one parsed item |
+| `GET :3000/path` | HTTP; first stage yields a `Response`, mid-pipeline a timed record |
+| `(x => x * 2)` | TypeScript lambda, per item, async fine |
+| `filter (l => l.ok)` | keeps truthy items, drops the rest |
+| `assert (r => r.ok)` | falsy **fails** the pipeline |
+| `capture NAME (r => r.id)` | writes to `process.env.NAME` for later lines |
+| `expect 201` / `expect 2xx` | status assertion, fails at drain |
+| `stats` | count / rps / status histogram / p50 / p95 / p99 |
+| `parallel N` | fan-out modifier for the **next** stage |
+| anything else | plain shell via `sh -c` |
+
+`:3000/path` expands to `http://localhost:3000/path` everywhere.
+
+### Where `$VAR` expands — and where it doesn't
+
+Expansion happens at **parse time**, and only in specific positions: URLs, whole `-H` header strings, JSON literals, `stats --out` paths, and registered-fn arguments.
+
+It does **not** expand inside lambda, `assert` or `capture` bodies — those are JavaScript, so use `process.env.VAR`. Shell stages do their own expansion.
+
+SQL placeholders survive untouched: `$1` and `$2` inside a `sql "…"` string are safe, because a digit can't start an environment variable name.
+
+### Request chaining with capture
+
+Each line parses immediately before it runs, so a `capture` on one line feeds `$VAR` on every later line. That is the contract behind the REPL, `crust -c` scripts and `.pipes` files alike.
+
+```crust
+{"name": "Court"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | assert (r => r.status === 201) | (r => r.json()) | capture BID (b => b.building.id)
+GET $BASE/api/buildings/$BID -H "authorization: Bearer $TOKEN" | expect 200
+```
+
+Last item wins. A nullish captured value, or empty upstream, fails **immediately** — so a typo'd accessor dies on the capture line rather than three lines later as a baffling empty expansion.
+
+## Worked examples
+
+```crust
+lines **/*.log | grep ERROR | filter (l => !l.includes('healthcheck')) | wc -l
+```
+
+```crust
+range(1, 5) | (n => n * n) | sort -rn
+```
+
+```crust
+{"name": "x"} | POST :3000/users | assert (r => r.status === 201) | (r => r.json()) | assert (u => u.id > 0)
+```
+
+```crust
+sql "SELECT count(*)::int AS c FROM users WHERE email = $1" "a@b.c" | assert (r => r.c === 1)
+```
+
+```crust
+read fixtures/*.json | parallel 8 | POST :3000/users | expect 2xx
+```
+
+```crust
+tail -n 0 -F app.log | grep ERROR
+```
+
+## The traps it warns about
+
+These are the ones worth internalising even if you never use an agent.
+
+- **A plain lambda maps; it never drops.** `(l => l.includes('ERROR'))` emits `true`/`false` per item, and `(x => cond ? x : null)` prints literal `null` lines. Use `filter` to drop.
+- **`filter` passes an empty stream through silently; `assert` fails on it.** That asymmetry is deliberate — it closes the "SQL returned zero rows and the suite went green" hole. `expect` also does not fail on empty.
+- **`parallel` streams in completion order**, not input order.
+- **A glob yields paths; `read <glob>` yields contents.** `POST`ing a bare glob posts path strings.
+- **Builtins cannot be piped** — a `test-pipes` or `mock-server` line must contain no `|`.
+- **Native grep patterns are JS regexes.** Quoted `'a|b'` alternates where BRE grep matched the literal; use `grep -F` for the literal.
+- In `… | expect 200 | stats`, a failing `expect` throws at drain **before** `stats` emits. Gate inside a stats assert if you need the summary.
+
+## Exit codes
+
+Any stage throw prints `crust: <message>` to stderr and exits 1. `crust -c`, `crust file.crust` and piped stdin all run newline-separated lines through the same fail-fast loop and stop at the first non-zero — so warmup and cleanup belong on their own lines.
+
+## Related
+
+- [Quickstart](/docs/quickstart/) — the human-readable version of the same ground.
+- [Log mining](/docs/recipes/log-mining/) — the `lines`/`grep`/`filter` combination in anger.

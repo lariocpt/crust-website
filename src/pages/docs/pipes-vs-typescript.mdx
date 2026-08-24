@@ -1,0 +1,122 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Pipe shorthand vs TypeScript
+description: The same pipeline written both ways — when the one-line shorthand is the right tool, when to drop into the TypeScript API, and the handful of things only one of them can do.
+---
+
+import CodeSwitcher from '../../components/CodeSwitcher.astro';
+
+crust has two front doors onto the same engine. The **pipe shorthand** is the line you type at a prompt or put in a `.pipes` file. The **TypeScript API** is the same stages as ordinary functions you `.pipe()` together in a `.ts` file.
+
+Neither is a lesser version of the other. They compile to the same `Pipeline<T>`, and the choice is about the file you're in.
+
+> At wide viewports the two panes sit side-by-side. On narrower screens use the `bsh` / `ts` tabs.
+
+## The same pipeline, both ways
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  crust -c 'load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json'
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  const out = await load([{ durMs: 10_000, rps: 100 }])
+    .pipe(parallel(50, timedGet("http://localhost:3000/health")))
+    .pipe(statsStage(undefined, "load/last.json"))
+    .collect();
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+The shorthand is shorter because it makes assumptions the TypeScript form spells out: `:3000/health` expands to `http://localhost:3000/health`, `parallel 50` implies the timed per-item GET, and `stats` picks its own output shape.
+
+## When to use the shorthand
+
+**It is the right default for anything you'd type once**, and for anything that belongs in a file a non-author will read.
+
+- One-liners at a prompt or under `crust -c`.
+- `.pipes` suites, where one readable line per test case *is* the format.
+- `.crust` script files and `#!/usr/bin/env crust` shebangs.
+- CI gate lines, where the whole check fits on one line and the exit code is the contract.
+
+Its real advantage is that `$VAR` chaining works across lines. Each line parses immediately before it runs, so a `capture` on one line feeds the next — the thing that makes a five-line CRUD suite readable:
+
+```crust
+{"name": "Court"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | assert (r => r.status === 201) | (r => r.json()) | capture BID (b => b.building.id)
+GET $BASE/api/buildings/$BID -H "authorization: Bearer $TOKEN" | expect 200
+```
+
+## When to drop into TypeScript
+
+**Reach for it when the logic outgrows one line**, or when you want the thing to be importable, testable and typed.
+
+- Real control flow — branching, loops, try/catch around a stage.
+- Values that aren't strings: a config object, a computed header set, a closure over something you fetched earlier.
+- Anything you want types on. `Pipeline<T>` is generic, so the item type flows through the chain.
+- `~/.config/crust/init.ts`, where you register your own stages with `crust.fn(...)`.
+- Long-lived programs — a follow stream you tie to an `AbortController`, or a sink you wrote yourself.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  crust -c 'lines **/*.log | grep ERROR | wc -l'
+  ```
+  </Fragment>
+  <Fragment slot="ts">
+  ```ts
+  // Follow every service's access log into one stream and page on 5xx
+  for await (const line of tail("services/*/access.log", { follow: true }).lines()) {
+    if (/5\d\d/.test(line)) await notifyPager(line);
+  }
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+The shell line counts what already happened. The TypeScript version runs forever and does something with each match — that difference, not verbosity, is the reason to switch.
+
+## What only the shorthand can do
+
+- **Cross-line `capture` chaining** via `process.env`. In TypeScript you'd just use a variable, which is better — but it means a `.pipes` file has no TypeScript equivalent as a *file format*.
+- **Falling through to `sh`.** A stage crust doesn't recognise is handed to the system shell, so `| wc -l`, `| sort -rn` and `| pino-pretty` compose for free.
+- **Being a one-liner.** Nothing to import, nothing to build.
+
+## What only TypeScript can do
+
+- **Sinks.** `write(path)` and `dest(dir)` are imported directly, not exposed as shell stages.
+- **Types.** The shorthand is checked by the grammar; it can't tell you an item is the wrong shape until it runs.
+- **Being imported.** A `.ts` module composes into other programs; a `.pipes` line doesn't.
+
+## The globals the API exposes
+
+Available in any `.ts` file run by Bun, including `init.ts`:
+
+```ts
+Pipeline                      // the unified stream abstraction
+range(start, end)             // source
+glob(pattern)                 // source
+readLines(pattern)            // source — the shell's `lines`
+readAll(pattern)              // source — the shell's `read <glob>`
+tail(paths, opts?)            // source — globs expanded, multi-file merges
+procs(spec)                   // source — merged child-process streams
+load(phases, opts?)           // source — the shell's `load`
+GET(url, opts?)               // source
+POST, PUT, PATCH, DELETE      // transforms — upstream item is the body
+parallel(n, fn)               // transform — N workers, completion order
+timedGet(url, opts?)          // per-item fn — {status, ms, url}
+timedHttpItem(m, url, opts?)  // per-item fn — any verb, body from the item
+statsStage(everySec?, out?)   // transform — the shell's `stats`
+captureEnv(name, fn?)         // transform — the shell's `capture`
+expectStage(matcher)          // transform — fails on mismatch
+$                             // Bun's tagged-template shell
+```
+
+## Rule of thumb
+
+Write the shorthand until it stops fitting on one line or you need a type — then move that one stage into TypeScript. They mix: a registered `crust.fn` written in TypeScript is callable as a stage from the shorthand, which is usually the cleanest split.
+
+## Related
+
+- [Quickstart](/docs/quickstart/) — every surface shown both ways.
+- [Agent skills](/docs/agent-skills/) — what the `crust-pipelines` skill teaches agents about the shorthand.

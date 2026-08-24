@@ -1,0 +1,90 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-load-testing
+description: Paced load runs with real percentiles and CI-ready exit codes — the load source, parallel sizing by Little's law, drop accounting, and the honesty guarantees that stop a zero-request run reporting success.
+---
+
+**`crust-load-testing`** teaches an agent to produce load numbers that are safe to quote — and to recognise the conditions under which they aren't.
+
+One line gives a paced run with percentiles and an exit code CI can gate on. This is single-process smoke-load and soak tooling, not a distributed rig.
+
+## The four shapes
+
+Fixed volume — N requests, K at a time:
+
+```crust
+range(0, 999) | parallel 50 | GET :3000/health | expect 200 | stats
+```
+
+Paced — an arrival **rate** for a **duration**:
+
+```crust
+load 30s 100/s | parallel 50 | GET :3000/health | expect 200 | stats
+```
+
+Ramp — comma-separated phases, one stats stream across all of them:
+
+```crust
+load 10s 50/s, 30s 200/s | parallel 100 | GET :3000/health | stats --every 5
+```
+
+POST load — ticks are `{n, phase, scheduledAt, lagMs}`, so bodies build from them:
+
+```crust
+load 10s 20/s | (t => ({name: "user" + t.n})) | parallel 8 | POST :3000/users | expect 2xx | stats
+```
+
+**Rate and concurrency are independent knobs.** Little's law sizes the pool: `N ≥ rate × p99-in-seconds`.
+
+## The honesty guarantees
+
+This is the part of the skill that matters most, and it is why the numbers are quotable.
+
+- **A gate that measured nothing fails.** `stats` over an empty stream is tagged `empty: true` and `assert` refuses it. Previously `{count: 0, p95: 0}` satisfied `s => s.p95 < 200`, so a run that issued zero requests reported success.
+- **Percentiles never flatter.** They are bucketed and report the bucket's *upper* bound, so they are never faster than reality. `count` and `meanMs` are exact, and memory is constant — a multi-hour soak is safe.
+- **`stats.rps` is measured, never the target.** If downstream saturates, stale slots are skipped rather than burst, and the drop is reported on stderr:
+
+```text
+load: target 3000 ticks — emitted 2868, dropped 132 … achieved 95.6/s
+```
+
+  A drop report means the target rate was **not** sustained. Raise `parallel N` or lower the rate before quoting percentiles.
+
+- Percentiles come only from timed records and include body download. With `--every`, a slow request lands in the window it *finished* in.
+
+## CI gates
+
+Thresholds are just `assert` composition — one per threshold, so the failure names the predicate:
+
+```crust
+load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200) | assert (s => s.rps > 80)
+```
+
+Baseline comparison — `--out` writes a versioned artifact and an async assert reads the previous one back:
+
+```crust
+load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (async s => { const b = await Bun.file("load/baseline.json").json(); return s.p95 < 2 * b.summary.p95 })
+```
+
+The artifact is written **before** the gate runs, so a failed gate still leaves the file for CI to upload.
+
+Soak with fail-fast windows — `--every N` emits `{window: k, …}` deltas and then `{final: true, …}`:
+
+```crust
+load 60s 25/s | parallel 25 | GET :3000/health | stats --every 5 | assert (s => !s.window || s.p95 < 400)
+```
+
+`!s.window ||` scopes a threshold to window objects, `!s.final ||` to the final summary. Both are also correct without `--every`.
+
+## Warmup
+
+Warmup is simply a separate line whose stats aren't gated:
+
+```crust
+range(0, 99) | parallel 10 | GET :3000/health | stats
+load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200)
+```
+
+## Related
+
+- [Stress testing](/docs/recipes/stress-testing/) · [CI load gates](/docs/recipes/ci-load-gates/)

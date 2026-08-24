@@ -1,5 +1,5 @@
 ---
-layout: ../../layouts/DocsLayout.astro
+layout: ../../../layouts/DocsLayout.astro
 title: Agent skills
 description: Five Claude agent skills ship inside the crust binary — skills list to see them, skills install to drop them into .claude/skills/, grammar-lint-tested so they can't rot.
 ---
@@ -45,15 +45,17 @@ crust-procs
     tailing multiple services, or mining merged process logs.
 ```
 
-## What each skill covers
+## The five skills
+
+Each has its own page with usage directions, worked examples and the reasoning behind them.
 
 | Skill | Teaches the agent to… | Leans on |
 |---|---|---|
-| `crust-pipelines` | Write and debug pipeline lines: pick the right source, compose lambdas/verbs/`parallel`, chain requests with `capture`, know where `$VAR` expands. The foundation the other four assume. | [Quickstart](/docs/quickstart/) |
-| `crust-api-testing` | Build `.pipes` suites with capture chaining and SQL cross-checks, write `.crust.ts` fixtures, and derive negative matrices + CRUD flows from an OpenAPI spec. | [API smoke tests](/docs/recipes/api-smoke-tests/), [gen-fixtures](/docs/recipes/gen-fixtures/) |
-| `crust-load-testing` | Shape `load` scenarios and ramps, size `parallel` pools, read drop reports, and wire `stats`/`assert` threshold gates with baselines into CI. | [Stress testing](/docs/recipes/stress-testing/), [CI load gates](/docs/recipes/ci-load-gates/) |
-| `crust-mock-server` | Boot spec mocks, use stateful CRUD for round-trip flows (persisted with `--state`, seeded with `--seed`, envelope-aware), interpret `--validate` 422s, and run conformance audits with `--proxy`. | [Mock server](/docs/recipes/mock-server/) |
-| `crust-procs` | Orchestrate processes with `ready:`/`after:`/`restart:`, tail merged logs, and gate CI on `wait`. | [One dev tail](/docs/recipes/dev-tail/) |
+| **[crust-pipelines](/docs/agent-skills/pipelines/)** | Write and debug pipeline lines: pick the right source, compose lambdas/verbs/`parallel`, chain requests with `capture`, know where `$VAR` expands. The foundation the other four assume. | [Quickstart](/docs/quickstart/) |
+| **[crust-api-testing](/docs/agent-skills/api-testing/)** | Build `.pipes` suites with capture chaining and SQL cross-checks, write `.crust.ts` fixtures, and derive negative matrices + CRUD flows from an OpenAPI spec. | [API smoke tests](/docs/recipes/api-smoke-tests/), [gen-fixtures](/docs/recipes/gen-fixtures/) |
+| **[crust-load-testing](/docs/agent-skills/load-testing/)** | Shape `load` scenarios and ramps, size `parallel` pools, read drop reports, and wire `stats`/`assert` threshold gates with baselines into CI. | [Stress testing](/docs/recipes/stress-testing/), [CI load gates](/docs/recipes/ci-load-gates/) |
+| **[crust-mock-server](/docs/agent-skills/mock-server/)** | Boot spec mocks, use stateful CRUD for round-trip flows, interpret `--validate` 422s, and run conformance audits with `--proxy`. | [Mock server](/docs/recipes/mock-server/) |
+| **[crust-procs](/docs/agent-skills/procs/)** | Orchestrate processes with `ready:`/`after:`/`restart:`, tail merged logs, and gate CI on `wait`. | [One dev tail](/docs/recipes/dev-tail/) |
 
 ## Install
 
@@ -104,3 +106,4 @@ So when the grammar evolves, the test suite turns every outdated skill example i
 
 - [Quickstart](/docs/quickstart/) — the human-readable version of what the skills teach.
 - [Recipes](/docs/recipes/) — the workflows the skills point agents at.
+- [Pipe shorthand vs TypeScript](/docs/pipes-vs-typescript/) — which surface a skill's examples are written against.
