@@ -103,4 +103,17 @@ jobs:
           # --sitemap, not --base-url: --base-url probes robots.txt at the ORIGIN,
           # so on a project Pages site it looks at lariocpt.github.io/robots.txt
           # and finds nothing. Point it straight at our sitemap instead.
-          ./crust-bin -c "verify-web-links --sitemap https://lariocpt.github.io/crust-website/sitemap-index.xml --concurrency 8 --timeout 15000"
+          #
+          # Retry: this runs seconds after deploy-pages, and the CDN has served a
+          # 503 for a freshly-published asset that was 200 moments later. A real
+          # broken link fails all three attempts, so the gate keeps its teeth —
+          # this only absorbs propagation lag.
+          for attempt in 1 2 3; do
+            if ./crust-bin -c "verify-web-links --sitemap https://lariocpt.github.io/crust-website/sitemap-index.xml --concurrency 8 --timeout 15000"; then
+              exit 0
+            fi
+            echo "link check attempt $attempt failed"
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
+          echo "FAIL: link check still failing after 3 attempts"
+          exit 1
