@@ -100,4 +100,7 @@ jobs:
           curl -fsSL -o crust-bin \
             https://github.com/lariocpt/crust/releases/latest/download/crust-linux-x64
           chmod +x crust-bin
-          ./crust-bin -c "verify-web-links --base-url https://lariocpt.github.io/crust-website/ --concurrency 8 --timeout 15000"
+          # --sitemap, not --base-url: --base-url probes robots.txt at the ORIGIN,
+          # so on a project Pages site it looks at lariocpt.github.io/robots.txt
+          # and finds nothing. Point it straight at our sitemap instead.
+          ./crust-bin -c "verify-web-links --sitemap https://lariocpt.github.io/crust-website/sitemap-index.xml --concurrency 8 --timeout 15000"
