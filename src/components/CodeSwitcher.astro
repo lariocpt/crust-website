@@ -101,6 +101,17 @@ const { bashLabel = 'bsh', tsLabel = 'ts' } = Astro.props;
 	}
 
 	/* Tab mode: <1024px */
+	/* Above the tab breakpoint both panes sit side-by-side, so the `hidden`
+	   attribute the script toggles for the tabbed layout must NOT hide anything.
+	   Without this the UA rule `[hidden] { display: none }` applied at every
+	   width — and `.tabs` is only shown below the breakpoint, so there was no
+	   control to bring the TypeScript pane back either. Half of every
+	   CodeSwitcher block was unreachable on a desktop. */
+	@media (min-width: 1024px) {
+		.pane[hidden] {
+			display: block;
+		}
+	}
 	@media (max-width: 1023.98px) {
 		.tabs {
 			display: flex;

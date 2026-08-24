@@ -1,0 +1,103 @@
+name: Deploy to GitHub Pages
+
+# The public plane. The LAN deploy stays with Jenkins and is untouched: this
+# builds the SAME source in public mode (PUBLIC_SITE=1) and never runs against
+# the LAN host.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; let a newer commit win.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  PUBLIC_SITE: "1"
+  SITE_URL: https://lariocpt.github.io
+  BASE_PATH: /crust-website
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build (public mode)
+        run: bun run build
+
+      # The site's code blocks are hand-copied from crust's docs and rot
+      # silently. This repo cannot import crust's lexer, so the real binary is
+      # the bridge — same gate the Jenkins pipeline runs, against the published
+      # release instead of the LAN artifact.
+      - name: Grammar gate
+        run: |
+          set -euo pipefail
+          curl -fsSL -o crust-bin \
+            https://github.com/lariocpt/crust/releases/latest/download/crust-linux-x64
+          chmod +x crust-bin
+          ./crust-bin --version
+          bun scripts/lint-examples.mjs "$PWD/crust-bin"
+
+      # The inverse of the Jenkins Gate: that one fails if public references leak
+      # into a LAN build, this one fails if a public build is missing them or
+      # still carries LAN ones.
+      - name: Gate (public build)
+        run: |
+          set -euo pipefail
+          grep -rq 'github\.com/lariocpt/crust' dist \
+            || { echo "FAIL: public build has no repo link"; exit 1; }
+          if grep -rlE 'apps\.in\.drlario\.org|crust\.in\.drlario\.org' dist; then
+            echo "FAIL: LAN references leaked into the public build (see files above)"
+            exit 1
+          fi
+          grep -q 'rel="canonical" href="https://lariocpt.github.io/crust-website/"' dist/index.html \
+            || { echo "FAIL: canonical is not the public URL"; exit 1; }
+          # _astro/ is a Jekyll-excluded directory; without .nojekyll the site
+          # deploys unstyled.
+          test -f dist/.nojekyll || { echo "FAIL: dist/.nojekyll missing"; exit 1; }
+          # Every internal link must carry the base path, or it 404s under /crust-website.
+          if grep -rhoE '(href|src)="/(docs|favicon|_astro)[^"]*"' dist --include='*.html' | sort -u | grep .; then
+            echo "FAIL: unbased internal links above would 404 under the base path"
+            exit 1
+          fi
+          echo "gate passed: public references present, no LAN leakage, links based"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # Dogfooding: the tool this site documents checks the site it just deployed.
+  links:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: verify-web-links against the live site
+        run: |
+          set -euo pipefail
+          curl -fsSL -o crust-bin \
+            https://github.com/lariocpt/crust/releases/latest/download/crust-linux-x64
+          chmod +x crust-bin
+          ./crust-bin -c "verify-web-links --base-url https://lariocpt.github.io/crust-website/ --concurrency 8 --timeout 15000"
