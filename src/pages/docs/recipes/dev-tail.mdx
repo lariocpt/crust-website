@@ -22,7 +22,7 @@ procs({web: "bun run dev:web", api: "bun api.ts", tsc: "tsc -b --watch"}) \
 ## Object specs — per-proc env and auto-restart
 
 A spec value can be an object instead of a bare command string:
-`{cmd, env?, restart?, ready?, after?}`.
+`{cmd, env?, restart?, ready?, live?, after?}`.
 
 ```bash
 procs({
@@ -40,6 +40,26 @@ procs({
   `exit` stream between attempts. A **user kill** (Ctrl-C / SIGTERM) never
   respawns — restart is for crashy dev servers, not for fighting your own
   shutdown.
+
+### Liveness — `live:` restarts the unhealthy-but-alive
+
+A readiness probe converges once and stops watching; `live:` keeps watching
+for the wedge readiness can't see. Same target forms as `ready:`
+(`":3001/health"` / `"port:5432"`), long form
+`{url?, port?, intervalMs?, probeTimeoutMs?, failures?, graceMs?}` —
+defaults 5s cadence / 3 consecutive failures. Probe progress lands on a
+`live` stream (`probe failed (1/3)`, `recovered after 1 failed probe(s)`,
+`unhealthy after 3 consecutive failed probe(s)`); at the fatal streak a
+restartable proc is killed through the normal escalation and respawned
+(liveness re-arms after the next ready), while a non-restartable one fails
+the whole pipeline — CI semantics, exactly like a ready-timeout. The
+restart strike counter's "healthy stretch" ends when the fatal streak
+*began*, so a proc that answers ready and then wedges still runs out of
+`{max}` instead of restarting forever.
+
+```bash
+procs({api: {cmd: "bun api.ts", ready: ":3001/health", live: {url: ":3001/health", failures: 3}, restart: {max: 5}}})
+```
 
 ### Capping crash loops — `restart: {max: N}`
 

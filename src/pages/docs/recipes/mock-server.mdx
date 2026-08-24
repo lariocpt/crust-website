@@ -286,7 +286,7 @@ Every violation carries a JSON `pointer` into the body (or the param name), the 
 
 What is checked: path/query parameters (string values coerced to the declared `integer`/`number`/`boolean` first; `header`/`cookie` params skipped), required query params, `requestBody.required`, unparseable JSON bodies, and JSON body schemas — `type` (incl. 3.1 `["string","null"]`), `required`, `properties`/`items`, `enum`, `nullable`, `anyOf`/`oneOf`/`allOf`, `format` (`uuid`, `email`, `date`, `date-time`, `uri`), `pattern`, `minLength`/`maxLength`, `minimum`/`maximum` (both `exclusive*` forms), `minItems`/`maxItems`.
 
-The governing rule: **a schema the walker can't judge validates successfully.** Unknown formats, uncompilable patterns, unresolvable `$ref`s, and unsupported keywords (`not`, `uniqueItems`, `multipleOf`, and `additionalProperties` — even `false`) never produce a violation — so extra properties are never rejected, and the validator never invents a failure it can't justify. Non-JSON bodies (multipart, form) pass untouched.
+The governing rule: **a schema the walker can't judge validates successfully.** Unknown formats, uncompilable patterns, unresolvable `$ref`s, and unsupported keywords (`not`, `uniqueItems`, `multipleOf`, …) never produce a violation — the validator never invents a failure it can't justify. Non-JSON bodies (multipart, form) pass untouched. Extra properties are never rejected **unless you pass `--strict`**, which enforces a *literal* `additionalProperties: false` — and only at object nodes the walker can fully judge: allOf-merged objects, nodes with combinator siblings, and `patternProperties` stay exempt (the classic validator false positive), while `anyOf`/`oneOf` branches enforce internally. `--strict` implies `--validate` and composes with `--proxy` in both directions.
 
 `--validate` composes with `--stateful`: an invalid POST answers `422` and **creates nothing** — which is exactly what makes the combination a good stand-in backend for frontend form work. (The mock's `422` is deliberately distinct from your real server's documented `400` contract — [generated negative fixtures](/docs/recipes/gen-fixtures/) still belong against the real thing.)
 
@@ -402,7 +402,7 @@ The mock is just an HTTP server — drive it with normal crust pipelines.
 Honest about what doesn't work yet:
 
 - Remote `$ref` resolution
-- `additionalProperties: false` is **not** enforced by `--validate` — extra properties always pass (see the governing rule above)
+- `additionalProperties: false` is **not** enforced by plain `--validate` — add `--strict` to enforce the literal-`false` form (see the governing rule above)
 - Faker-style data (every `string` is just `"string"` unless the format is known)
 - Hot-reload on spec changes
 

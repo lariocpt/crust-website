@@ -234,15 +234,28 @@ logs> grep api_request
 -- live --
 …                       ← new matches as they arrive
 ^C
-logs> (l => { try { return JSON.parse(l) } catch { return null } }) | filter (e => e && e.status) | (e => e.path + " " + e.duration_ms + "ms")
+logs> json on
+json: on — string items parsing to JSON objects/arrays reach queries parsed
+logs[json]> filter (e => e.status) | (e => e.path + " " + e.duration_ms + "ms")
 -- live --
 /api/health 1ms
 /api/health 0ms
 ^C
-logs> buffer
-buffer: 551/10000 items (pushed 551, evicted 0)
-logs> exit
+logs[json]> search timeout
+search: 2 matching item(s) of 551 buffered
+logs[json]> buffer 50000
+buffer: resized 10000 → 50000 (kept 551 item(s))
+logs[json]> exit
 ```
+
+`json on` is the session's honest answer to NDJSON streams: parsing happens
+at query time (the buffer stays raw, `json off` reverts instantly), lines
+that aren't JSON objects flow through unchanged **and are counted out
+loud** — so a mixed stream can neither crash a query (the old
+`(l => JSON.parse(l))` lambda threw on the first plain line) nor silently
+lose data. `search <text>` answers instantly from the buffer with a match
+count (zero included) and highlighting; `buffer N` widens the window
+without restarting the held source.
 
 Because every query is ordinary pipeline grammar, rendering is just
 another stage — filter on the raw JSON first, then hand the matches to

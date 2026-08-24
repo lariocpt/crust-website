@@ -386,10 +386,10 @@ export default {
 ## Reports & exit codes
 
 ```bash
-test-fixture 'fixtures/**/*.crust.ts' -j8 -o report.json
+test-fixture 'fixtures/**/*.crust.ts' -j8 -o report.xml
 ```
 
-Report format is picked from `--out`'s extension: `.json`, `.md`, anything else is plain text. With no `--out`, you get a colored folder-grouped summary on stdout.
+Report format is picked from `--out`'s extension: `.json`, `.md`, `.xml` (JUnit — one testsuite per fixture file, one testcase per run, so CI points at the exact failing iteration), anything else is plain text. With no `--out`, you get a colored folder-grouped summary on stdout.
 
 Exit codes:
 
