@@ -120,7 +120,23 @@ const { command = INSTALL_COMMAND, label = 'Install' } = Astro.props;
 					if (label) label.textContent = prev;
 				}, 1600);
 			} catch {
-				btn.classList.add('copied');
+				// A failed clipboard write must never show the success tick: the user
+				// would paste whatever was there before and never know. Select the
+				// command instead so a manual copy still works.
+				const label = btn.querySelector('.label');
+				const prev = label?.textContent ?? 'Copy';
+				if (label) label.textContent = 'Select + copy';
+				const cmd = btn.closest('[data-install]')?.querySelector('.cmd');
+				if (cmd) {
+					const range = document.createRange();
+					range.selectNodeContents(cmd);
+					const sel = window.getSelection();
+					sel?.removeAllRanges();
+					sel?.addRange(range);
+				}
+				setTimeout(() => {
+					if (label) label.textContent = prev;
+				}, 2400);
 			}
 		});
 	}
