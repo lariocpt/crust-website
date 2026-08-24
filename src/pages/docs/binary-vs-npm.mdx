@@ -1,0 +1,86 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Compiled binary vs npm module
+description: Why the npm package is a 4KB launcher rather than the tool itself — what each install channel actually puts on disk, how the binary is verified before it runs, and which one to use where.
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+import { isPublic, NPM_INSTALL_COMMAND, CLONE_COMMAND } from '../../lib/site';
+
+crust ships as **one compiled binary**. The npm package is not a second implementation of it — it is a small launcher that fetches and verifies that same binary.
+
+Both channels end up running byte-identical code. The difference is how it gets onto the machine.
+
+## The two channels
+
+<InstallBlock />
+
+<InstallBlock command={NPM_INSTALL_COMMAND} label="npm install" />
+
+| | Curl installer | npm package |
+|---|---|---|
+| What you download | the binary itself | a ~4KB launcher |
+| Where it lands | `~/.local/bin/crust` | npm's global bin, binary cached under `~/.cache/crust` |
+| Needs Node/npm | no | yes |
+| Needs Bun | no | no |
+| Fetches on first run | no | yes — the binary |
+
+## Why the npm package isn't the binary
+
+`bun build --compile` produces a self-contained executable of roughly **90MB** — it embeds the Bun runtime, so there is nothing to install alongside it.
+
+Publishing that to npm would mean ~90MB per version in the registry, and it would hard-lock the package to a single platform. Instead the binary is published **once** per release to GitHub Releases, and every install route resolves that one artifact.
+
+So the npm package contains a launcher that, on first use, works out your platform, downloads the matching release asset, and hands over. Subsequent runs are a straight exec.
+
+## The verification path is the same either way
+
+This is the part worth caring about. Both channels **verify a published sha256 before the file is ever executable**:
+
+1. Fetch `SHA256SUMS` from the release.
+2. Stream the binary to a temporary file, hashing as it goes.
+3. Compare. On mismatch, delete and fail.
+4. Only then `chmod` and rename into place.
+
+A truncated or tampered download never becomes an executable file on disk, not even briefly. Neither channel has a flag to skip that check.
+
+## Why the launcher fetches lazily
+
+npm 12 blocks install scripts by default. A package that only fetched its binary in a `postinstall` would install "successfully" and then be unable to run.
+
+So the fetch happens on first invocation, and the postinstall is only a fast path for environments that still permit scripts. The cost is that the very first `crust` command pays the download; the benefit is that `npm i -g` works under any script policy.
+
+## Which to use
+
+**Use the curl installer** for a workstation, a CI image, or any machine where you don't want a Node toolchain involved. It is the shortest path: one file, on your PATH, no runtime dependencies.
+
+**Use the npm package** when crust belongs to a project rather than a machine — a `devDependency` that pins the version your test suite expects, or a repo where teammates already run `npm i` and shouldn't need a separate step.
+
+**Build from source** on any platform the releases don't cover:
+
+{isPublic && <InstallBlock command={CLONE_COMMAND} label="Clone and build" />}
+
+Prebuilt binaries cover linux and macOS on x64 and arm64. The Linux builds are glibc; on musl (Alpine) the installer refuses up front and points here rather than letting you install something that won't run.
+
+## Which binary a launcher resolves
+
+The npm package carries a `crust.source` field naming the artifact plane it was published for, overridable at runtime:
+
+```bash
+CRUST_SOURCE=github npm i -g @lariocpt/crust
+```
+
+The public package resolves GitHub Releases. The mechanism exists because crust is also published to a private LAN artifact plane, and one launcher serves both — the download-and-verify path is shared, so the integrity guarantee doesn't depend on which plane you're on.
+
+## Fixtures cannot import npm packages
+
+One consequence of shipping a compiled binary is worth knowing before you write fixtures: **the binary cannot resolve npm modules at runtime.**
+
+A `.crust.ts` fixture may import only relative modules and Bun builtins — `Bun.SQL`, `Bun.file`, `Bun.jwt`. That is a hard constraint of the compiled artifact, not a policy choice, and it's why the fixture format leans on Bun's standard library.
+
+(Globally installed npm packages are a different matter — crust can dispatch to them as pipeline stages. See [npm packages](/docs/npm-packages/).)
+
+## Related
+
+- [npm packages](/docs/npm-packages/) — using installed packages as pipeline stages.
+- [Quickstart](/docs/quickstart/) — install and first commands.

@@ -70,3 +70,14 @@ export const INSTALL_COMMAND = isPublic
 
 /** Public-mode only — a LAN build must not emit this (see the Gate note above). */
 export const REPO_URL = 'https://github.com/lariocpt/crust';
+
+/** The npm channel, per plane: the public scope vs the LAN registry. */
+export const NPM_INSTALL_COMMAND = isPublic
+	? 'npm i -g @lariocpt/crust'
+	: 'npm i -g crust --registry https://npm.in.drlario.org';
+
+/**
+ * Build-from-source one-liner. Public-mode ONLY — it embeds REPO_URL, and the LAN
+ * Gate fails the build on any github.com string in dist/.
+ */
+export const CLONE_COMMAND = `git clone ${REPO_URL}.git ~/.crust && ~/.crust/scripts/install-from-source.sh`;

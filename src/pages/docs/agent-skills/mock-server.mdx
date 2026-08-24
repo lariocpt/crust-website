@@ -1,0 +1,88 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-mock-server
+description: One builtin, four modes, all driven by an OpenAPI spec — example-first mocking, envelope-aware stateful CRUD persisted to sqlite or postgres, request validation with 422s, and a proxy mode that audits a real API's spec conformance.
+---
+
+**`crust-mock-server`** teaches an agent that one builtin covers four distinct jobs, and — importantly — which of them are mutually exclusive.
+
+```crust
+mock-server ./openapi.json -p4000
+```
+
+```crust
+mock-server ./openapi.json -p4000 --stateful
+```
+
+```crust
+mock-server ./openapi.json -p4000 --validate
+```
+
+```crust
+mock-server ./openapi.json -p4747 --proxy http://localhost:3001
+```
+
+Builtins can't be piped, so run the server on one line (or under `procs()`) and pipe against it from another.
+
+## Mock and stateful
+
+Responses prefer the spec's `example`/`examples`, then synthesize from the schema — `enum[0]`, format-aware strings, nested objects. Status pick is 200 → 201 → other 2xx → `default`. An unknown path is 404; a known path with the wrong method is 405.
+
+`--stateful` pairs `/things` with `/things/{id}` automatically: POST stores, GET lists what you stored shaped to the spec's envelope, GET by unknown id is 404, PUT/PATCH shallow-merge, DELETE returns 204. Untouched collections keep serving spec examples.
+
+**Entity envelopes round-trip.** If the POST's 201 example wraps the entity — one object-valued property, no top-level id — the mock detects it. Responses come back wrapped with the real stored entity inside, request bodies wrapped the same way are unwrapped, and the store keeps the bare entity. So capturing a wrapped id works against the mock exactly as it would against the real API:
+
+```crust
+{"thing": {"name": "x"}} | POST :4000/api/things | assert (r => r.status === 201) | (r => r.json()) | capture TID (t => t.thing.id)
+GET :4000/api/things/$TID | expect 200
+```
+
+Flat specs capture `t.id` as before. Ambiguous shapes — two object-valued properties, or a top-level `id` — stay flat. Deterministic, never guessed.
+
+## Persistence and seeding
+
+`--state` and `--seed` both imply `--stateful`, and both exclude `--proxy`.
+
+- **`--state <path|url>`** — a bare path or `sqlite://` file, or a `postgres://` URL. Survives restarts and is shared across processes; reads hit the DB every request and writes are single-statement upserts, last write wins.
+- **`--seed <file.json>`** — shaped `{ "/api/things": [ {…} ] }`, items without an `id` get a uuid. **Empty collections only**, so re-booting over a persistent store never duplicates or clobbers.
+
+The table contract is stable enough to assert against from a pipeline:
+
+```text
+crust_mock_state(collection TEXT, id TEXT, doc TEXT|JSONB, updated_at,
+                 PRIMARY KEY (collection, id))
+```
+
+`doc` is the bare entity as JSON, so with `DATABASE_URL=sqlite://./m.sqlite`:
+
+```crust
+sql "SELECT json_extract(doc, '$.name') AS name FROM crust_mock_state WHERE collection = '/api/things'" | assert (r => r.name === "x")
+```
+
+On postgres that's `doc->>'name'` instead.
+
+## Request validation
+
+`--validate` gives spec-violating requests a **422** — deliberately distinguishable from the API's own 400 — with header `x-crust-validation: request` and a body listing `violations` with pointer paths.
+
+The governing rule the skill drills into agents: **a schema the validator can't judge passes.** It never invents a violation. Notably `additionalProperties: false` is not enforced unless you add `--strict`, and `--strict` only enforces it at plain object nodes — allOf-merged objects, nodes with combinator siblings, and `patternProperties` stay exempt, so composition idioms don't produce false failures.
+
+## Validation proxy — conformance testing
+
+`--proxy` forwards every request to the real upstream, returns the response **untouched**, and records violations out-of-band in both directions: request violations, undocumented response statuses, undocumented content-types, response-schema mismatches, and `undocumented-operation` for paths the spec doesn't know (still forwarded, so a browsing frontend keeps working). An upstream that's down is a 502, not a violation.
+
+The findings are pipeable, which is the actual gate:
+
+```crust
+GET :4747/__crust/violations | (v => v.violations.filter(x => x.direction === "response")) | assert (a => a.length === 0)
+```
+
+The workflow: point your existing suite's base URL at the proxy port, run the suite, then assert zero **response-direction** violations. Request-direction violations are *expected* if your suite includes negative cases — which is exactly why the filter is on direction.
+
+## Exit codes
+
+`0` clean shutdown · `1` runtime failure such as spec load or a bad seed file · `2` bad args, including `--proxy` combined with `--stateful`/`--state`/`--seed`.
+
+## Related
+
+- [Mock server recipe](/docs/recipes/mock-server/) · [Generated negative fixtures](/docs/recipes/gen-fixtures/)

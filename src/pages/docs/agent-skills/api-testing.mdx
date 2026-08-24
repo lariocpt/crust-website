@@ -1,0 +1,100 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-api-testing
+description: Three layers of API testing in one binary — .pipes suites with capture chaining and inline SQL, .crust.ts fixtures with setup and matchers, and gen-fixtures deriving negative matrices from an OpenAPI spec.
+---
+
+**`crust-api-testing`** teaches an agent to reach for the lightest tool that fits, and to know which checks a spec can derive and which a human still has to write.
+
+## The three layers
+
+| Layer | File | Best for |
+|---|---|---|
+| `test-pipes` | `.pipes` — one pipeline per line | readable CRUD suites, chaining, SQL cross-checks |
+| `test-fixture` | `.crust.ts` — TS fixture modules | complex setup, matcher functions, stress runs |
+| `gen-fixtures` | generated from `openapi.json` | negative matrices and CRUD flows for every documented operation |
+
+The skill's advice is to start at the top and only descend when the layer above genuinely can't express the check.
+
+## Layer 1 — `.pipes` suites
+
+One shorthand pipeline per line, `#` comments, lines run sequentially per file. `capture` chains requests and `sql` verifies the database inline:
+
+```crust
+{"name": "Court", "floors": 3} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | assert (r => r.status === 201) | (r => r.json()) | capture BID (b => b.building.id)
+GET $BASE/api/buildings/$BID -H "authorization: Bearer $TOKEN" | expect 200
+sql "SELECT count(*)::int AS c FROM buildings WHERE name = 'Court'" | assert (r => r.c === 1)
+{} | DELETE $BASE/api/buildings/$BID -H "authorization: Bearer $TOKEN" | expect 204
+GET $BASE/api/buildings/$BID -H "authorization: Bearer $TOKEN" | expect 404
+```
+
+That is a complete create → read → verify-in-DB → delete → confirm-gone suite in five lines.
+
+Run it, with a JUnit report for CI:
+
+```crust
+test-pipes 'tests/**/*.pipes' -b -o report.xml
+```
+
+Things the skill makes explicit:
+
+- **Setup module** — `-s mod.ts`, else a sibling `<name>.setup.ts`. Its default export is awaited before the file and seeds `process.env` (`$BASE`, `$TOKEN`). `sql` needs `$DATABASE_URL`.
+- **SQL row types** — rows arrive as the driver returns them. `count(*)` and `numeric` may come back as strings or bigints, so cast in SQL (`count(*)::int AS c`) and compare ids as strings.
+- **Hermetic per file** — `process.env` is snapshotted and restored around each file, so captures never leak between files.
+- **Status-check placement** — `expect N` when the check ends the line, `assert (r => r.status === N)` when more stages follow, because `expect` only throws at drain.
+- **Exit codes** — 0 all pass, 1 any failure, 2 no files or bad args.
+
+## Layer 2 — `.crust.ts` fixtures
+
+One fixture is one request. `setup()` returns a context; `input` fields that are 1-argument functions receive it; `output` fields that take 1+ arguments are matchers `(actual, ctx)`, and async matchers are awaited.
+
+```ts
+export default {
+  name: "creates a user",
+  setup: async () => ({ token: await login() }),
+  input: {
+    url: "http://localhost:3000/api/users",
+    method: "POST",
+    headers: (ctx) => ({ authorization: `Bearer ${ctx.token}` }),
+    body: { name: "x" },
+  },
+  output: {
+    status: 201,
+    data: async (d, ctx) => (await db.userById(d.id)) !== null,
+  },
+};
+```
+
+```crust
+test-fixture 'tests/*.crust.ts' -j8 -o report.xml
+```
+
+`output.schema` takes an inline JSON Schema the response body must conform to, failing with per-field pointer paths. **Inline means `$ref`-free** — a `$ref` anywhere in it is a loud error, because the runner has no spec to resolve it against and would otherwise pass silently. Unknown schema keywords pass: the validator never invents a violation.
+
+Two constraints worth knowing before writing fixtures:
+
+- Fixtures may run **concurrently** under `-j`, so share state only through a module-scope promise-cached factory.
+- Fixture files may import only **relative modules and Bun builtins** — the compiled binary cannot resolve npm at runtime. Use `Bun.SQL`, `Bun.file`, `Bun.jwt`.
+
+## Layer 3 — `gen-fixtures`
+
+```crust
+gen-fixtures ./openapi.json
+```
+
+Output is deterministic and byte-stable — check it in, regenerate, review the `git diff`. It emits:
+
+- **A negative matrix per operation** — 401 no-credentials, 403 authenticated-outsider on scope-gated paths, 404 unknown-id, and a 400 matrix per body field: missing required, wrong type, bad enum, too short or long, below or above numeric bounds, pattern violations, unexpected extra property.
+- **CRUD flows** — create → read → update → delete → read-after-delete-404, chained with `capture` and run by `test-pipes` with no extra flags.
+
+The honest limit, which the skill states plainly: **SQL assertions are not derivable from a spec.** Add those by hand in your own `.pipes`. And the `--out` directory is deleted and recreated every run, so never hand-edit generated files.
+
+## The workflow it recommends
+
+1. `gen-fixtures` against the spec, run the matrix and flows, fix what fails.
+2. Hand-write `.pipes` for business flows a spec can't express — SQL checks, multi-resource invariants.
+3. Reach for `.crust.ts` only when a case needs real code: crypto, files, custom matchers.
+
+## Related
+
+- [API smoke tests](/docs/recipes/api-smoke-tests/) · [Generated negative fixtures](/docs/recipes/gen-fixtures/)
