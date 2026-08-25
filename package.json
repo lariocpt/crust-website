@@ -1,5 +1,6 @@
 {
   "name": "crust-website",
+  "description": "Documentation site for crust — the whole test stack baked into one binary.",
   "type": "module",
   "version": "0.0.1",
   "license": "MIT",
