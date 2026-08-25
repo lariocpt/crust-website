@@ -128,7 +128,7 @@ crust -c '{"name": "Rex", "tag": "dog"} | POST :4000/pets | assert (r => r.statu
 GET :4000/pets/$PET_ID | (r => r.json()) | assert (p => p.name === "Rex" && p.tag === "dog")
 {"tag": "good dog"} | PATCH :4000/pets/$PET_ID | (r => r.json()) | assert (p => p.tag === "good dog" && p.name === "Rex")
 GET :4000/pets | (r => r.json()) | assert (l => l.items.length === 1)
-{} | DELETE :4000/pets/$PET_ID | expect 204
+DELETE :4000/pets/$PET_ID | expect 204
 GET :4000/pets/$PET_ID | expect 404'
 ```
 
@@ -230,7 +230,7 @@ crust's `sql` builtin speaks sqlite URLs (`DATABASE_URL=sqlite://./mock.sqlite` 
 {"thing": {"name": "Piper", "kind": "widget"}} | POST $BASE/api/things | assert (r => r.status === 201) | (r => r.json()) | capture TID (t => t.thing.id)
 GET $BASE/api/things/$TID --timeout 2s | expect 200
 sql "SELECT json_extract(doc, '$.name') AS name FROM crust_mock_state WHERE collection = '/api/things' AND id = '$TID'" | assert (r => r.name === "Piper")
-{} | DELETE $BASE/api/things/$TID | expect 204
+DELETE $BASE/api/things/$TID | expect 204
 sql "SELECT count(*) AS c FROM crust_mock_state WHERE collection = '/api/things' AND id = '$TID'" | assert (r => Number(r.c) === 0)
 ```
 

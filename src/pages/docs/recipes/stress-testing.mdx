@@ -212,6 +212,13 @@ snippets — is its own recipe: [CI load gates](/docs/recipes/ci-load-gates/).
 
 To vary inputs across iterations, use **thunks** in `input` together with the `random` helper. A thunk (zero-argument function) is resolved + awaited per iteration; a function with at least one parameter is treated as a predicate matcher over the actual output value.
 
+> **Watch the arity.** `data: () => true` reads like "any value here" but a
+> zero-argument function is a *thunk supplying the expected value*, so it means
+> "the body must equal `true`". Since 0.2.4 that is a hard error naming the fix
+> rather than a silent mis-comparison. Write `(v) => ...` for a predicate, or
+> the literal directly.
+
+
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash

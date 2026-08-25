@@ -155,7 +155,7 @@ Unless you pass `--no-flows`, qualifying collection paths also get a flow suite:
 {"name":"gen-value-x","kind":"widget"} | POST $GEN_URL_THINGS -H "$GEN_AUTH_HEADER" | assert (r => r.status === 201) | (r => r.json()) | capture GEN_ID_THINGS (b => b.thing.id)
 GET $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | assert (r => r.status === 200) | (r => r.json()) | assert (j => JSON.stringify(j).includes(process.env.GEN_ID_THINGS ?? " "))
 {"name":"gen-value-x"} | PATCH $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 200
-{} | DELETE $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 204
+DELETE $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 204
 GET $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 404
 ```
 
