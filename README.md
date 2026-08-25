@@ -1,7 +1,8 @@
 # crust-website
 
-The documentation site for [crust](https://github.com/lariocpt/crust) — a
-pipeline-first devops toolkit built on Bun.
+The documentation site for [crust](https://github.com/lariocpt/crust) — the
+whole test stack baked into one binary: spec-driven mocks, generated fixtures,
+load gates, and log tooling, with zero dependencies.
 
 Astro 6 + MDX, static output, built with Bun.
 
