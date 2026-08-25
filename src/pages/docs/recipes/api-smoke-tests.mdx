@@ -70,7 +70,7 @@ crust -c '{"email": "smoke@test.dev", "password": "pw-123456"} | POST :3000/api/
 {"name": "Court", "kind": "widget"} | POST :3000/api/things -H "authorization: Bearer $TOKEN" | assert (r => r.status === 201) | (r => r.json()) | capture THING_ID (b => b.thing.id)
 GET :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 200
 {"priority": 5} | PATCH :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 200
-{} | DELETE :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 204
+DELETE :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 204
 GET :3000/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 404'
 ```
 
@@ -91,7 +91,7 @@ GET $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 200
 sql "SELECT count(*)::int AS c FROM things WHERE name = 'Court'" | assert (r => r.c === 1)
 
 {"priority": 5} | PATCH $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | (r => r.json()) | assert (b => b.thing.priority === 5)
-{} | DELETE $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 204
+DELETE $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 204
 GET $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 404
 sql "SELECT count(*)::int AS c FROM things WHERE id = $1" "$THING_ID" | assert (r => r.c === 0)
 
@@ -163,6 +163,13 @@ crust -c "test-pipes 'tests/**/*.pipes' -b -t5000"
 ## The TypeScript API — `.crust.ts` fixtures
 
 Reach for `.crust.ts` fixtures when a single test stops being expressible as one line: tokens are generated per fixture, matchers assert on structure, or the fixture needs its own `setup`/`teardown`. Each file is a normal TypeScript module that default-exports a fixture (or array) with `input` and `output`. Fields can be values *or* zero-argument thunks (resolved + awaited at run time). In `output`, a function with at least one parameter is a predicate matcher over the actual value.
+
+> **Watch the arity.** `data: () => true` reads like "any value here" but a
+> zero-argument function is a *thunk supplying the expected value*, so it means
+> "the body must equal `true`". Since 0.2.4 that is a hard error naming the fix
+> rather than a silent mis-comparison. Write `(v) => ...` for a predicate, or
+> the literal directly.
+
 
 `setup()`'s return value flows through the whole fixture: `input`/`output`
 may be functions of the context, unary `input` field functions receive it,
