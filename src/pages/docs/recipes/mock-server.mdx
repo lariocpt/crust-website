@@ -101,6 +101,14 @@ figure of speech: crust's mock and its validator read the same file, so a body o
 other refuses is unambiguously a crust bug, and all four of the rules new in this release were
 found exactly that way.
 
+A path templated the Express way — `/things/:id` rather than OpenAPI's `/things/{id}` — is matched **literally**. crust does not rewrite it, because silently reinterpreting your spec is a worse failure than the one it fixes; instead it names the count on stderr at boot, since the route total would otherwise look healthy while those routes are unreachable by any real client:
+
+```
+mock-server: 7 route(s) from openapi.json
+mock-server: 3 path(s) use Express-style ':param' — OpenAPI templates parameters as '{param}',
+             so these are matched LITERALLY and will not match a real value
+```
+
 **Status code selection** within a matched operation:
 
 ```
