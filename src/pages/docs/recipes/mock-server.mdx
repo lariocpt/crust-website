@@ -58,7 +58,7 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. Swagger 2.0 specs are auto-converted to OpenAPI 3.x. |
+| `--swagger <url-or-path>` | *required* | URL or local `.json` / `.yaml` / `.yml`. Swagger 2.0 specs are auto-converted to OpenAPI 3.x. OpenAPI 3.1 made `paths` optional, so a document describing only `webhooks` (or only reusable `components`) loads and mocks **0 routes** — the boot line names the webhook count, because webhooks are callbacks your API *sends*, not endpoints it serves. A document with none of the three is still an error. |
 | `--port N` | `3000` | `0` requests an ephemeral OS-assigned port. |
 | `--host addr` | `0.0.0.0` | Bind address. |
 | `--stateful` | off | CRUD layer on top of example mode — in-memory unless `--state` is given. See below. |
@@ -73,18 +73,33 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
 The server walks the operation in this order to choose a body:
 
+0. A response written as `{ "$ref": "#/components/responses/Foo" }` is **resolved first**. A `$ref`'d
+   *response object* is a different thing from a `$ref`'d *schema*, and it is the ordinary style in
+   hand-written specs — 95 of the 99 operations in one real-world spec we tested are written that
+   way.
 1. `content.<media>.example` wins outright.
 2. Otherwise the first entry in `content.<media>.examples`.
 3. Otherwise the schema is walked:
    - `string` → `"string"` (or a format-aware default for `email`, `date-time`, `uuid`, `uri`).
-   - `integer` / `number` → `0`.
+   - `integer` / `number` → `0`, **or the nearest value the schema's own `minimum` / `maximum`
+     allows** — a `{"minimum": 1}` page counter is never mocked as `0`. Both `exclusiveMinimum` /
+     `exclusiveMaximum` spellings are honoured (3.1's numeric bound and 3.0's boolean modifier).
    - `boolean` → `false`.
    - `array` → `[item]`.
    - `object` → every property generated.
-   - `enum` → first value.
+   - `enum` → first value; `const` → that value.
+   - schema-level `examples` (OpenAPI 3.1's array form) → first entry.
    - `allOf` → merged.
    - `oneOf` / `anyOf` → first branch.
+   - **OpenAPI 3.1 union types** — `"type": ["string", "null"]`, the form that replaced 3.0's
+     `nullable: true` — synthesise the first **non-`null`** member, so a nullable field still gets
+     representative data instead of a bare `null`.
 4. Local `$ref`s into `components.schemas.*` are resolved (cyclic refs return `null`).
+
+Every rule above exists so the mock cannot produce a body `--validate` would reject. That is not a
+figure of speech: crust's mock and its validator read the same file, so a body one makes and the
+other refuses is unambiguously a crust bug, and all four of the rules new in this release were
+found exactly that way.
 
 **Status code selection** within a matched operation:
 
