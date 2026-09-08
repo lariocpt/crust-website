@@ -70,10 +70,10 @@ For every operation the spec documents:
 | **403** as non-member | The op is scope-gated (see `scopeParam` below) and documents 403. An authenticated *outsider* — valid credentials, no membership — makes the call. | `status: 403` |
 | **404** with unknown id | Non-scope-gated ops with path params that document 404 — an authorised caller requests a random uuid. | `status: 404` |
 | **400** per body field | The op has a JSON request body and documents 400. One case per required field *missing*, one per field with the *wrong JSON type*, one per *enum violation*. | `status: 400` and the canonical `{ error, code: "validation", fieldErrors }` body naming the field |
-| **400** per boundary | Same precondition — one case per violated `minLength` / `maxLength` / `minimum` / `maximum` / `pattern`, for required **and** optional fields. | same as above |
+| **400** per boundary | Same precondition — one case per violated `minLength` / `maxLength` / `minimum` / `maximum` / `pattern`, for required **and** optional fields. Nullable fields count: both the zod-style `anyOf: [X, {type: "null"}]` wrapper and OpenAPI 3.1's `"type": ["string", "null"]` union are unwrapped to the real schema first, so a nullable field gets its boundary cases under either spelling. | same as above |
 | **400** extra property | The body schema has `additionalProperties: false`. | `status: 400`, `code === "validation"` |
 
-Every 400 case perturbs a **schema-valid base body** — required fields are synthesized from the schema (format-aware: emails, uuids, dates, simple digit-pattern sampling) so exactly one thing is wrong per case. Authz cases (401/403) also carry a valid body, because routes that validate before the auth middleware would otherwise 400 ahead of the status under test.
+Every 400 case perturbs a **schema-valid base body** — required fields are synthesized from the schema (format-aware: emails, uuids, dates, simple digit-pattern sampling) so exactly one thing is wrong per case. The wrong-type case for a nullable field is a value of a genuinely wrong type, never `null`: the union permits `null`, so sending it would assert nothing. Authz cases (401/403) also carry a valid body, because routes that validate before the auth middleware would otherwise 400 ahead of the status under test.
 
 ### Response schemas ride along — `output.schema`
 
