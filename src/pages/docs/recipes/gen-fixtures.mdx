@@ -128,6 +128,11 @@ POST /things unexpected extra property -> 400 # additionalProperties: false
 The rules that keep the matrix sane:
 
 - Boundary cases run in **fixed per-field order** (too short, too long, below, above, pattern), so regeneration diffs are stable.
+- The **valid base body honours the schema's own bounds** — `maxLength`, `minLength`,
+  `minItems`/`maxItems`, `minimum`/`maximum`. Every 400-case perturbs that body, so where it was
+  already invalid the expected 400 could arrive for the wrong reason: a false pass, which is the one
+  thing crust must never produce. The fixed format values are deliberately unchanged, since
+  checked-in matrices are CI-diffed against a regeneration.
 - A **wrong-type case is only generated when the value is actually rejected**. A field whose schema
   constrains nothing — `{properties: {…}}` with no `type`, a description-only node — has no wrong
   value, so such a case would assert `-> 400` for a request a correct API answers 200: a test that
