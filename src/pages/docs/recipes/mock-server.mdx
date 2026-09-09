@@ -127,7 +127,13 @@ The server walks the operation in this order to choose a body:
    - **OpenAPI 3.1 union types** — `"type": ["string", "null"]`, the form that replaced 3.0's
      `nullable: true` — synthesise the first **non-`null`** member, so a nullable field still gets
      representative data instead of a bare `null`.
-4. Local `$ref`s into `components.schemas.*` are resolved. A **cyclic** `$ref` terminates with the
+4. A body expands at most **20,000 schema nodes**. Past that a `$ref` terminates exactly as a cycle
+   does, so a truncated body still validates, and mock-server says so on stderr rather than leaving a
+   short answer unexplained. Some real graphs are *mutually* recursive — presalytics.io/ooxml has
+   `Slide.Slides.Details` referencing `Shared.*.Details` referencing back — and with per-path cycle
+   detection the cost of a complete body grows with the number of **paths**, not nodes: 52 million
+   expansions for 134 responses and 53 seconds for that one file, which from outside is a hang.
+5. Local `$ref`s into `components.schemas.*` are resolved. A **cyclic** `$ref` terminates with the
 properties its schema REQUIRES and nothing else. Dropping the optional ones is what makes it finite,
 since the property that closes the loop is nearly always optional — a slot may contain a sub-slot.
 A required property that closes the loop gets the empty shape of the type it declares. Both the
