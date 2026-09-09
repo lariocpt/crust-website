@@ -81,8 +81,10 @@ The server walks the operation in this order to choose a body:
 2. Otherwise the first entry in `content.<media>.examples`.
 3. Otherwise the schema is walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
-     `email`, `date-time`, `uuid`, `uri`; otherwise a sample from `pattern` where one can be
-     derived; then clamped to `minLength` / `maxLength`. Plain `"string"` appears only when
+     `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
+     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, literals and alternation —
+     and **verified against the real regex before it is used**, so a construction crust
+     cannot manage degrades to a neutral value rather than a confidently wrong one; then clamped to `minLength` / `maxLength`. Plain `"string"` appears only when
      nothing constrains the field. A pattern crust cannot sample — a character class like
      `[0-9]+`, as opposed to `\d{3}` — falls back to a neutral value rather than a guess:
      knowingly wrong beats confidently wrong, and `--validate` reports it.
