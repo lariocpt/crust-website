@@ -104,7 +104,12 @@ The server walks the operation in this order to choose a body:
    - `array` → `[item]`, repeated to meet `minItems` or trimmed to `maxItems` — a `maxItems: 0`
      mocks as `[]`, not as a one-element array its own validator would reject. Capped at 100
      elements, because a mock body nobody can read helps nobody.
-   - `object` → every property generated.
+   - `object` → every property generated, plus any name in `required` that `properties` never
+     describes. Real specs do this — ton-console's `Participant` requires `date_create` and defines
+     no such property — and omitting it produced a body crust's own validator rejects. Nothing
+     constrains a name with no schema, so `null` satisfies it. Under `additionalProperties: false`
+     the schema forbids the key it demands; that is unsatisfiable, so crust leaves the
+     contradiction visible instead of papering over it.
    - `enum` → first value; `const` → that value.
    - schema-level `examples` (OpenAPI 3.1's array form) → first entry.
    - `allOf` → merged when its branches are objects; when they are not, the first branch that
