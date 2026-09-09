@@ -128,7 +128,10 @@ The server walks the operation in this order to choose a body:
      an **empty** object contributed nothing and does not outrank a sibling that has real content:
      AWS writes every field as `allOf: [{ $ref: "…/Real" }, { description: "…" }]`, and where
      `Real` was a list the documentation-only `{}` used to win and the array was discarded.
-   - `oneOf` / `anyOf` → first branch.
+   - `oneOf` / `anyOf` → first branch, **merged with the node's own `properties`** where it has
+     them; the branch wins a conflict, being the narrower statement about which variant this is.
+     Some specs use a union purely to say "one of these *required* sets" and declare the actual
+     properties on the node, and taking the branch alone returned `null` for the whole object.
    - **OpenAPI 3.1 union types** — `"type": ["string", "null"]`, the form that replaced 3.0's
      `nullable: true` — synthesise the first **non-`null`** member, so a nullable field still gets
      representative data instead of a bare `null`.
