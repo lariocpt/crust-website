@@ -79,7 +79,12 @@ The server walks the operation in this order to choose a body:
    way.
 1. `content.<media>.example` wins outright.
 2. Otherwise the first entry in `content.<media>.examples`.
-3. Otherwise the schema is walked:
+3. Where a node omits `type`, it is **inferred from the keywords present** — `format`, `pattern` and
+   the length bounds are string-only; the numeric bounds are number-only; `properties`/`items` say
+   object and array; an `enum` says the type of the member picked. `type` is optional in JSON Schema
+   and the other keywords are not decoration: sinao writes `items: {format: "string"}`, and crust
+   used to emit `[null]` for it. A node stating none of them still has no type. Then the schema is
+   walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
      classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals and alternation —
