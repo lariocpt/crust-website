@@ -128,7 +128,12 @@ POST /things unexpected extra property -> 400 # additionalProperties: false
 The rules that keep the matrix sane:
 
 - Boundary cases run in **fixed per-field order** (too short, too long, below, above, pattern), so regeneration diffs are stable.
-- The field-name heuristics yield to anything the schema actually states — an explicit `pattern`,
+- `exclusiveMinimum`/`exclusiveMaximum` are honoured in **both spellings** — 3.0's boolean modifier
+  on `minimum`/`maximum`, and 3.1's number — so `{maximum: 1, exclusiveMaximum: true}` is never
+  answered with `1`, the one value it excludes. Where a `format` and a `pattern` are both declared,
+  the format constant is used only if it satisfies the pattern: `format: email` beside a pattern
+  whose TLD is 2–5 letters rejects `gen@crust.fixture`, which has seven.
+- The field-name heuristics yield to anything the schema actually states — an explicit `pattern`, an explicit `format`,
   and equally a length bound: `client_id: {type: "string", maxLength: 20}` never mentions uuid, and
   the 36-character one does not fit. An explicit `format` is different: there the schema asked for
   the value itself, and a `maxLength` too small for it is the spec contradicting itself, which crust
