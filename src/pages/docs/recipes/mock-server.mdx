@@ -109,21 +109,25 @@ The server walks the operation in this order to choose a body:
    - `array` → `[item]`, repeated to meet `minItems` or trimmed to `maxItems` — a `maxItems: 0`
      mocks as `[]`, not as a one-element array its own validator would reject. Capped at 100
      elements, because a mock body nobody can read helps nobody.
-   - `object` → every property generated — except an **optional** property crust cannot represent
-     (one re-entering a cycle already expanded as far as it goes), which is **omitted** rather than
-     emitted as an empty object missing its own required fields. Absent always validates;
-     present-and-invalid does not. A *required* property in that position still appears, since
-     presence is forced and the empty shape is then the least-bad answer. Plus any name in
-     `required` that `properties` never
-     describes — including where a schema has `required` and no `properties` at all, which is how a
-     branch of an `allOf` adds only a requirement — and where the `required` list sits on an `allOf`
-     **node** while the properties live in its branches. Such a placeholder never outranks a branch that
-     DOES describe the property: turbinelabs declares `zone_key: {type: string}` in one branch and
-     merely requires it in another, and the placeholder used to win. Real specs do this — ton-console's `Participant` requires `date_create` and defines
-     no such property — and omitting it produced a body crust's own validator rejects. Nothing
-     constrains a name with no schema, so `null` satisfies it. Under `additionalProperties: false`
-     the schema forbids the key it demands; that is unsatisfiable, so crust leaves the
-     contradiction visible instead of papering over it.
+   - `object` → every property generated, with three refinements.
+
+     An **optional** property crust cannot represent — one re-entering a cycle already expanded as
+     far as it goes — is *omitted* rather than emitted as an empty object missing its own required
+     fields: absent always validates, present-and-invalid does not. A *required* property in that
+     position still appears, since presence is forced and the empty shape is the least-bad answer.
+
+     Any name in `required` that `properties` never describes is emitted as `null` — including where
+     a schema has `required` and no `properties` at all (how an `allOf` branch adds only a
+     requirement), and where the `required` list sits on an `allOf` **node** while the properties
+     live in its branches. Nothing constrains such a name, so `null` satisfies it, and omitting it
+     produced a body crust's own validator rejects. ton-console requires `date_create` on a schema
+     defining no such property.
+
+     That placeholder never outranks a branch that *does* describe the property: turbinelabs
+     declares `zone_key: {type: string}` in one `allOf` branch and merely requires it in another.
+     Under `additionalProperties: false` the schema forbids the key it demands — unsatisfiable — so
+     crust leaves the contradiction visible rather than papering over it.
+
    - `enum` → the first value that satisfies the schema's own declared `type`; `const` → that value.
      probely writes `{type: "string", enum: [null, "trial", …]}`, where the null is documented prose
      — taking it emits a value crust's own validator rejects. Where no member fits, the first stands
@@ -396,7 +400,7 @@ x-crust-validation: request
 
 Every violation carries a JSON `pointer` into the body (or the param name), the `rule` that fired, a human `message`, `expected`/`received`, and a `location` (`body`/`path`/`query`). One request, every violation named — not just the first.
 
-What is checked: path/query parameters (string values coerced to the declared `integer`/`number`/`boolean` first; `header`/`cookie` params skipped), required query params, `requestBody.required`, unparseable JSON bodies, and JSON body schemas — `type` (incl. 3.1 `["string","null"]`), `required`, `properties`/`items`, `enum`, `nullable`, `anyOf`/`oneOf`/`allOf`, `format` (`uuid`, `email`, `date`, `date-time`, `uri`), `pattern`, `minLength`/`maxLength`, `minimum`/`maximum` (both `exclusive*` forms), `minItems`/`maxItems`.
+What is checked: path/query parameters (string values coerced to the declared `integer`/`number`/`boolean` first; `header`/`cookie` params skipped), required query params, `requestBody.required`, unparseable JSON bodies, and JSON body schemas — `type` (incl. 3.1 `["string","null"]`), `required`, `properties`/`items`, `enum`, `nullable`, `anyOf`/`oneOf`/`allOf`, `format` (`uuid`, `email`, `date`, `date-time`, `uri`), `pattern`, `minLength`/`maxLength`, `minimum`/`maximum` (both `exclusive*` forms), `minItems`/`maxItems`. A union violation **names the branch it is describing** — `closest (branch #1 Quote) failed: …` — because "closest" means the branch with the fewest errors, which is often not the one the body was built from; without the name the failure reads as being about a variant nobody chose.
 
 The governing rule: **a schema the walker can't judge validates successfully.** Unknown formats, uncompilable patterns, unresolvable `$ref`s, and unsupported keywords (`not`, `uniqueItems`, `multipleOf`, …) never produce a violation — the validator never invents a failure it can't justify. Non-JSON bodies (multipart, form) pass untouched. Extra properties are never rejected **unless you pass `--strict`**, which enforces a *literal* `additionalProperties: false` — and only at object nodes the walker can fully judge: allOf-merged objects, nodes with combinator siblings, and `patternProperties` stay exempt (the classic validator false positive), while `anyOf`/`oneOf` branches enforce internally. `--strict` implies `--validate` and composes with `--proxy` in both directions.
 
