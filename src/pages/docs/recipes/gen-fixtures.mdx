@@ -128,6 +128,11 @@ POST /things unexpected extra property -> 400 # additionalProperties: false
 The rules that keep the matrix sane:
 
 - Boundary cases run in **fixed per-field order** (too short, too long, below, above, pattern), so regeneration diffs are stable.
+- Formats the generator has no constant of its own for — `uri`/`url` above all — fall through to the
+  same defaults the mock uses; its four fixed constants (email, uuid, date, date-time) keep their
+  values so existing matrices do not churn. An explicit `pattern` **outranks the field-name
+  heuristics**: a field called `job_id` carrying `^job-[0-9]{3}$` gets a value matching the pattern,
+  not the stable uuid, because a guess from a name must not beat what the schema says.
 - The **valid base body honours the schema's own bounds** — `maxLength`, `minLength`,
   `minItems`/`maxItems`, `minimum`/`maximum`. Every 400-case perturbs that body, so where it was
   already invalid the expected 400 could arrive for the wrong reason: a false pass, which is the one
