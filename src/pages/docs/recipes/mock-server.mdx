@@ -82,7 +82,7 @@ The server walks the operation in this order to choose a body:
 3. Otherwise the schema is walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
-     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, literals and alternation —
+     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals and alternation —
      and **verified against the real regex before it is used**, so a construction crust
      cannot manage degrades to a neutral value rather than a confidently wrong one; then clamped to `minLength` / `maxLength` — but **never in a way that unmakes the match just
      verified**. A length is bought by widening a quantifier that was already open-ended (`+`, `*`,
@@ -110,12 +110,19 @@ The server walks the operation in this order to choose a body:
    - `allOf` → merged when its branches are objects; when they are not, the first branch that
      produces a value. `allOf` means "this, refined", and what is refined is often a scalar —
      `allOf: [{ $ref: "#/components/schemas/Status" }]` around an enum is the common idiom.
-     Objects still win a mixed `allOf`.
+     Objects still win a mixed `allOf` — but only when they carry something. A branch that produces
+     an **empty** object contributed nothing and does not outrank a sibling that has real content:
+     AWS writes every field as `allOf: [{ $ref: "…/Real" }, { description: "…" }]`, and where
+     `Real` was a list the documentation-only `{}` used to win and the array was discarded.
    - `oneOf` / `anyOf` → first branch.
    - **OpenAPI 3.1 union types** — `"type": ["string", "null"]`, the form that replaced 3.0's
      `nullable: true` — synthesise the first **non-`null`** member, so a nullable field still gets
      representative data instead of a bare `null`.
-4. Local `$ref`s into `components.schemas.*` are resolved (cyclic refs return `null`).
+4. Local `$ref`s into `components.schemas.*` are resolved. A **cyclic** `$ref` terminates with the
+empty shape of the type it declares — `{}` for an object, `[]` for an array, read from `type` or,
+where a spec omits it, from the presence of `properties`/`items`. It used to terminate with `null`,
+which stopped the recursion just as well but put the wrong type in the body, so crust's own
+validator rejected it.
 
 Every rule above exists so the mock cannot produce a body `--validate` would reject. That is not a
 figure of speech: crust's mock and its validator read the same file, so a body one makes and the
