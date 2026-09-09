@@ -80,7 +80,12 @@ The server walks the operation in this order to choose a body:
 1. `content.<media>.example` wins outright.
 2. Otherwise the first entry in `content.<media>.examples`.
 3. Otherwise the schema is walked:
-   - `string` → `"string"` (or a format-aware default for `email`, `date-time`, `uuid`, `uri`).
+   - `string` → a value that satisfies the schema's own constraints: a format-aware default for
+     `email`, `date-time`, `uuid`, `uri`; otherwise a sample from `pattern` where one can be
+     derived; then clamped to `minLength` / `maxLength`. Plain `"string"` appears only when
+     nothing constrains the field. A pattern crust cannot sample — a character class like
+     `[0-9]+`, as opposed to `\d{3}` — falls back to a neutral value rather than a guess:
+     knowingly wrong beats confidently wrong, and `--validate` reports it.
    - `integer` / `number` → `0`, **or the nearest value the schema's own `minimum` / `maximum`
      allows** — a `{"minimum": 1}` page counter is never mocked as `0`. Both `exclusiveMinimum` /
      `exclusiveMaximum` spellings are honoured (3.1's numeric bound and 3.0's boolean modifier).
