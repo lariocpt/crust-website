@@ -115,7 +115,10 @@ The server walks the operation in this order to choose a body:
      constrains a name with no schema, so `null` satisfies it. Under `additionalProperties: false`
      the schema forbids the key it demands; that is unsatisfiable, so crust leaves the
      contradiction visible instead of papering over it.
-   - `enum` → first value; `const` → that value.
+   - `enum` → the first value that satisfies the schema's own declared `type`; `const` → that value.
+     probely writes `{type: "string", enum: [null, "trial", …]}`, where the null is documented prose
+     — taking it emits a value crust's own validator rejects. Where no member fits, the first stands
+     and the contradiction stays visible.
    - schema-level `examples` (OpenAPI 3.1's array form) → first entry.
    - `allOf` → merged when its branches are objects, **together with the node's own `properties`**.
      `allOf` is an intersection, not a replacement: a schema carrying both must satisfy both, and
