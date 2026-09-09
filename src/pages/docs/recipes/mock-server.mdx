@@ -104,7 +104,12 @@ The server walks the operation in this order to choose a body:
    - `array` → `[item]`, repeated to meet `minItems` or trimmed to `maxItems` — a `maxItems: 0`
      mocks as `[]`, not as a one-element array its own validator would reject. Capped at 100
      elements, because a mock body nobody can read helps nobody.
-   - `object` → every property generated, plus any name in `required` that `properties` never
+   - `object` → every property generated — except an **optional** property crust cannot represent
+     (one re-entering a cycle already expanded as far as it goes), which is **omitted** rather than
+     emitted as an empty object missing its own required fields. Absent always validates;
+     present-and-invalid does not. A *required* property in that position still appears, since
+     presence is forced and the empty shape is then the least-bad answer. Plus any name in
+     `required` that `properties` never
      describes. Real specs do this — ton-console's `Participant` requires `date_create` and defines
      no such property — and omitting it produced a body crust's own validator rejects. Nothing
      constrains a name with no schema, so `null` satisfies it. Under `additionalProperties: false`
