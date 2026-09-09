@@ -87,9 +87,14 @@ The server walks the operation in this order to choose a body:
    walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
-     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals and alternation —
+     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals, and alternation
+     **between top-level branches** —
      and **verified against the real regex before it is used**, so a construction crust
-     cannot manage degrades to a neutral value rather than a confidently wrong one; then clamped to `minLength` / `maxLength` — but **never in a way that unmakes the match just
+     cannot manage degrades to a neutral value rather than a confidently wrong one. Alternation is
+     read only where it separates whole branches: a `|` nested in a group (`^(a|b)$`) is not
+     something the character walk can choose between, so it degrades like any other declined
+     construction, while a pipe inside a character class (`[\w|-]`) is just one of its members
+     and is built normally. Values are then clamped to `minLength` / `maxLength` — but **never in a way that unmakes the match just
      verified**. A length is bought by widening a quantifier that was already open-ended (`+`, `*`,
      `{n,}`); a fixed-width `{3}` is never widened, since that would be the same mistake in a new
      place. Where a pattern and a length bound cannot both hold, the pattern wins — it is the
