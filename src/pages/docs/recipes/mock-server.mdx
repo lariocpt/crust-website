@@ -171,6 +171,8 @@ A path templated the Express way — `/things/:id` rather than OpenAPI's `/thing
 ```
 mock-server: 7 route(s) from openapi.json
 mock-server: 3 path(s) use Express-style ':param' — OpenAPI templates parameters as '{param}',
+
+The boot line also names **patterns written as JavaScript regex literals** — `/^[0-9]{5}$/i`, delimiters and flags included, where JSON Schema expects a bare regex. The leading slash is then matched literally, so no value can satisfy the pattern and every response carrying one is unsatisfiable — silently, since the failures look like ordinary validation noise. crust does not rewrite them: guessing at what a spec meant is how a mock starts lying.
              so these are matched LITERALLY and will not match a real value
 ```
 
