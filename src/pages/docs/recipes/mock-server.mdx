@@ -79,7 +79,12 @@ The server walks the operation in this order to choose a body:
    way.
 1. `content.<media>.example` wins outright.
 2. Otherwise the first entry in `content.<media>.examples`.
-3. Otherwise the schema is walked:
+3. Where a node omits `type`, it is **inferred from the keywords present** — `format`, `pattern` and
+   the length bounds are string-only; the numeric bounds are number-only; `properties`/`items` say
+   object and array; an `enum` says the type of the member picked. `type` is optional in JSON Schema
+   and the other keywords are not decoration: sinao writes `items: {format: "string"}`, and crust
+   used to emit `[null]` for it. A node stating none of them still has no type. Then the schema is
+   walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
      classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals and alternation —
@@ -104,29 +109,75 @@ The server walks the operation in this order to choose a body:
    - `array` → `[item]`, repeated to meet `minItems` or trimmed to `maxItems` — a `maxItems: 0`
      mocks as `[]`, not as a one-element array its own validator would reject. Capped at 100
      elements, because a mock body nobody can read helps nobody.
-   - `object` → every property generated, plus any name in `required` that `properties` never
-     describes. Real specs do this — ton-console's `Participant` requires `date_create` and defines
-     no such property — and omitting it produced a body crust's own validator rejects. Nothing
-     constrains a name with no schema, so `null` satisfies it. Under `additionalProperties: false`
-     the schema forbids the key it demands; that is unsatisfiable, so crust leaves the
-     contradiction visible instead of papering over it.
-   - `enum` → first value; `const` → that value.
+   - `object` → every property generated, with three refinements.
+
+     An **optional** property crust cannot represent — one re-entering a cycle already expanded as
+     far as it goes — is *omitted* rather than emitted as an empty object missing its own required
+     fields: absent always validates, present-and-invalid does not. A *required* property in that
+     position still appears, since presence is forced and the empty shape is the least-bad answer.
+
+     Any name in `required` that `properties` never describes is emitted as `null` — including where
+     a schema has `required` and no `properties` at all (how an `allOf` branch adds only a
+     requirement), and where the `required` list sits on an `allOf` **node** while the properties
+     live in its branches. Nothing constrains such a name, so `null` satisfies it, and omitting it
+     produced a body crust's own validator rejects. ton-console requires `date_create` on a schema
+     defining no such property.
+
+     That placeholder never outranks a branch that *does* describe the property: turbinelabs
+     declares `zone_key: {type: string}` in one `allOf` branch and merely requires it in another.
+     Under `additionalProperties: false` the schema forbids the key it demands — unsatisfiable — so
+     crust leaves the contradiction visible rather than papering over it.
+
+   - `enum` → the first value that satisfies the schema's own declared `type`; `const` → that value.
+     probely writes `{type: "string", enum: [null, "trial", …]}`, where the null is documented prose
+     — taking it emits a value crust's own validator rejects. Where no member fits, the first stands
+     and the contradiction stays visible.
    - schema-level `examples` (OpenAPI 3.1's array form) → first entry.
-   - `allOf` → merged when its branches are objects; when they are not, the first branch that
+   - `allOf` → merged when its branches are objects, **together with the node's own `properties`**.
+     `allOf` is an intersection, not a replacement: a schema carrying both must satisfy both, and
+     the branches win a conflict as the more specific statement. Real specs nest this constantly —
+     `allOf: [{ allOf: [inner], properties: outer }]` — and dropping the siblings had crust mocking
+     2 of one schema's 12 fields. When the branches are not objects, the first branch that
      produces a value. `allOf` means "this, refined", and what is refined is often a scalar —
      `allOf: [{ $ref: "#/components/schemas/Status" }]` around an enum is the common idiom.
+     Where a property is declared in more than one place along the chain, its **keywords** are
+     merged rather than one side winning: a base contributing `type: string` and a derived schema
+     contributing `enum` yield a value satisfying both, since neither mentions what the other
+     declares. (Picking a winner was tried both ways and measured across 4,138 real specs — both
+     precedences lose, because neither side is reliably the narrowing.)
      Objects still win a mixed `allOf` — but only when they carry something. A branch that produces
      an **empty** object contributed nothing and does not outrank a sibling that has real content:
      AWS writes every field as `allOf: [{ $ref: "…/Real" }, { description: "…" }]`, and where
      `Real` was a list the documentation-only `{}` used to win and the array was discarded.
-   - `oneOf` / `anyOf` → first branch.
+   - `oneOf` / `anyOf` → first branch, **merged with the node's own `properties`** where it has
+     them; the branch wins a conflict, being the narrower statement about which variant this is.
+     Some specs use a union purely to say "one of these *required* sets" and declare the actual
+     properties on the node, and taking the branch alone returned `null` for the whole object.
    - **OpenAPI 3.1 union types** — `"type": ["string", "null"]`, the form that replaced 3.0's
      `nullable: true` — synthesise the first **non-`null`** member, so a nullable field still gets
      representative data instead of a bare `null`.
-4. Local `$ref`s into `components.schemas.*` are resolved. A **cyclic** `$ref` terminates with the
+4. A body expands at most **20,000 schema nodes**. Past that a `$ref` to anything that can expand further terminates exactly
+   as a cycle does. A `$ref` to a **scalar** — a string, number, boolean or enum — is still followed:
+   it cannot recurse, costs one step, and is where the useful value lives, so refusing those too made
+   every enum-constrained field in a truncated body wrong for nothing saved. Truncation still leaves a body that validates, and mock-server says so on stderr. Some real graphs are *mutually* recursive — presalytics.io/ooxml has
+   `Slide.Slides.Details` referencing `Shared.*.Details` referencing back — and with per-path cycle
+   detection the cost of a complete body grows with the number of **paths**, not nodes: 52 million
+   expansions for 134 responses and 53 seconds for that one file, which from outside is a hang.
+5. Local `$ref`s into `components.schemas.*` are resolved, and **narrowing keywords written beside a
+   `$ref` apply** — `enum`, `format`, `pattern`, the bounds, `example`, `default` — since OpenAPI 3.1
+   permits them and they are how a spec restricts one use of a shared type. **Structural** siblings
+   (`type`, `properties`, `items`) are deliberately ignored: sibling keywords were illegal beside
+   `$ref` before 3.1, so Swagger-2 conversions are full of leftovers the tools of that era ignored,
+   and acting on them makes correct bodies wrong. A **cyclic** `$ref` terminates with the
 properties its schema REQUIRES and nothing else. Dropping the optional ones is what makes it finite,
 since the property that closes the loop is nearly always optional — a slot may contain a sub-slot.
-A required property that closes the loop gets the empty shape of the type it declares — `{}` for an
+A required property that closes the loop gets the empty shape of the type it declares, and a
+required **array** of the type being terminated becomes `[]` — which satisfies `required` and is
+finite, where one element would be a terminating level carrying none of its own required properties
+(`minItems` still wins where the spec asks for elements). Both the
+required list and that type are read **through `allOf`** — real specs compose recursive types out of
+branches rather than declaring them on the node (bitbucket's `comment.parent` and `commit.parents`
+are the canonical case), and reading the node alone found nothing and terminated with `null` — `{}` for an
 object, `[]` for an array, read from `type` or, where a spec omits it, from the presence of
 `properties`/`items`. It used to terminate with `null`,
 which stopped the recursion just as well but put the wrong type in the body, so crust's own
@@ -142,6 +193,8 @@ A path templated the Express way — `/things/:id` rather than OpenAPI's `/thing
 ```
 mock-server: 7 route(s) from openapi.json
 mock-server: 3 path(s) use Express-style ':param' — OpenAPI templates parameters as '{param}',
+
+The boot line also names **patterns written as JavaScript regex literals** — `/^[0-9]{5}$/i`, delimiters and flags included, where JSON Schema expects a bare regex. The leading slash is then matched literally, so no value can satisfy the pattern and every response carrying one is unsatisfiable — silently, since the failures look like ordinary validation noise. crust does not rewrite them: guessing at what a spec meant is how a mock starts lying.
              so these are matched LITERALLY and will not match a real value
 ```
 
@@ -347,7 +400,7 @@ x-crust-validation: request
 
 Every violation carries a JSON `pointer` into the body (or the param name), the `rule` that fired, a human `message`, `expected`/`received`, and a `location` (`body`/`path`/`query`). One request, every violation named — not just the first.
 
-What is checked: path/query parameters (string values coerced to the declared `integer`/`number`/`boolean` first; `header`/`cookie` params skipped), required query params, `requestBody.required`, unparseable JSON bodies, and JSON body schemas — `type` (incl. 3.1 `["string","null"]`), `required`, `properties`/`items`, `enum`, `nullable`, `anyOf`/`oneOf`/`allOf`, `format` (`uuid`, `email`, `date`, `date-time`, `uri`), `pattern`, `minLength`/`maxLength`, `minimum`/`maximum` (both `exclusive*` forms), `minItems`/`maxItems`.
+What is checked: path/query parameters (string values coerced to the declared `integer`/`number`/`boolean` first; `header`/`cookie` params skipped), required query params, `requestBody.required`, unparseable JSON bodies, and JSON body schemas — `type` (incl. 3.1 `["string","null"]`), `required`, `properties`/`items`, `enum`, `nullable`, `anyOf`/`oneOf`/`allOf`, `format` (`uuid`, `email`, `date`, `date-time`, `uri`), `pattern`, `minLength`/`maxLength`, `minimum`/`maximum` (both `exclusive*` forms), `minItems`/`maxItems`. A union violation **names the branch it is describing** — `closest (branch #1 Quote) failed: …` — because "closest" means the branch with the fewest errors, which is often not the one the body was built from; without the name the failure reads as being about a variant nobody chose.
 
 The governing rule: **a schema the walker can't judge validates successfully.** Unknown formats, uncompilable patterns, unresolvable `$ref`s, and unsupported keywords (`not`, `uniqueItems`, `multipleOf`, …) never produce a violation — the validator never invents a failure it can't justify. Non-JSON bodies (multipart, form) pass untouched. Extra properties are never rejected **unless you pass `--strict`**, which enforces a *literal* `additionalProperties: false` — and only at object nodes the walker can fully judge: allOf-merged objects, nodes with combinator siblings, and `patternProperties` stay exempt (the classic validator false positive), while `anyOf`/`oneOf` branches enforce internally. `--strict` implies `--validate` and composes with `--proxy` in both directions.
 
