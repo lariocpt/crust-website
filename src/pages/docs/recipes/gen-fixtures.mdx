@@ -128,6 +128,45 @@ POST /things unexpected extra property -> 400 # additionalProperties: false
 The rules that keep the matrix sane:
 
 - Boundary cases run in **fixed per-field order** (too short, too long, below, above, pattern), so regeneration diffs are stable.
+- An object whose properties live in a **union branch** is built from that branch. A node declaring
+  `type: "object"` alongside a `oneOf`/`anyOf` used to produce `{}` — the explicit type sent it
+  straight to the object case, which composes through `allOf` only. The same node *without* a type
+  worked, which is what kept it hidden.
+- `exclusiveMinimum`/`exclusiveMaximum` are honoured in **both spellings** — 3.0's boolean modifier
+  on `minimum`/`maximum`, and 3.1's number — so `{maximum: 1, exclusiveMaximum: true}` is never
+  answered with `1`, the one value it excludes. Where a `format` and a `pattern` are both declared,
+  the format constant is used only if it satisfies the pattern: `format: email` beside a pattern
+  whose TLD is 2–5 letters rejects `gen@crust.fixture`, which has seven.
+- The field-name heuristics yield to anything the schema actually states — an explicit `pattern`, an explicit `format`,
+  and equally a length bound: `client_id: {type: "string", maxLength: 20}` never mentions uuid, and
+  the 36-character one does not fit. An explicit `format` is different: there the schema asked for
+  the value itself, and a `maxLength` too small for it is the spec contradicting itself, which crust
+  leaves visible.
+- The `enum` member picked satisfies the schema's own declared `type` — real specs write
+  `{type: "string", enum: [true, false]}`. And `allOf` is merged as an **intersection**: `properties`
+  and `required` are unioned across the branches, and where two bounds disagree the stricter governs
+  (`minLength: 3` beside a branch's `minLength: 40` means 40). That reaches the shape where a node
+  carries the `type` and leaves its refinements to branches.
+- Formats the generator has no constant of its own for — `uri`/`url` above all — fall through to the
+  same defaults the mock uses; its four fixed constants (email, uuid, date, date-time) keep their
+  values so existing matrices do not churn. An explicit `pattern` **outranks the field-name
+  heuristics**: a field called `job_id` carrying `^job-[0-9]{3}$` gets a value matching the pattern,
+  not the stable uuid, because a guess from a name must not beat what the schema says.
+- The **valid base body honours the schema's own bounds** — `maxLength`, `minLength`,
+  `minItems`/`maxItems`, `minimum`/`maximum`. Every 400-case perturbs that body, so where it was
+  already invalid the expected 400 could arrive for the wrong reason: a false pass, which is the one
+  thing crust must never produce. The fixed format values are deliberately unchanged, since
+  checked-in matrices are CI-diffed against a regeneration.
+- A **wrong-type case is only generated when the value is actually rejected**. A field whose schema
+  constrains nothing — `{properties: {…}}` with no `type`, a description-only node — has no wrong
+  value, so such a case would assert `-> 400` for a request a correct API answers 200: a test that
+  fails against a correct implementation. 6,101 were derivable from a 4,138-spec corpus. crust owns
+  the validator, so it asks it rather than guessing.
+- A missing `type` is **inferred from the keywords present**, sharing one implementation with the
+  mock — so `{minLength: 3}` with no `type` now yields the boundary case it silently skipped before.
+- Every `$ref` is inlined **once and shared**, and inlining stops after 200,000 nodes. Copying at
+  each occurrence turned one real few-MB spec into a 2.03 GB structure and ran out of memory; past
+  the budget a `$ref` inlines as `{}`, exactly as a cyclic one does, and gen-fixtures says so.
 - `maxLength` above 4096 is skipped — checked-in files stay reviewable.
 - `maximum: Number.MAX_SAFE_INTEGER` is treated as an "unbounded" sentinel and skipped.
 - Zod-style nullable wrappers (`anyOf: [X, {type: "null"}]`) are unwrapped, so nullable fields get their boundary cases too.
