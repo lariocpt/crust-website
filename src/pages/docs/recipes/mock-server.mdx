@@ -130,7 +130,10 @@ The server walks the operation in this order to choose a body:
 4. Local `$ref`s into `components.schemas.*` are resolved. A **cyclic** `$ref` terminates with the
 properties its schema REQUIRES and nothing else. Dropping the optional ones is what makes it finite,
 since the property that closes the loop is nearly always optional — a slot may contain a sub-slot.
-A required property that closes the loop gets the empty shape of the type it declares — `{}` for an
+A required property that closes the loop gets the empty shape of the type it declares. Both the
+required list and that type are read **through `allOf`** — real specs compose recursive types out of
+branches rather than declaring them on the node (bitbucket's `comment.parent` and `commit.parents`
+are the canonical case), and reading the node alone found nothing and terminated with `null` — `{}` for an
 object, `[]` for an array, read from `type` or, where a spec omits it, from the presence of
 `properties`/`items`. It used to terminate with `null`,
 which stopped the recursion just as well but put the wrong type in the body, so crust's own
