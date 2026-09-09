@@ -128,6 +128,10 @@ POST /things unexpected extra property -> 400 # additionalProperties: false
 The rules that keep the matrix sane:
 
 - Boundary cases run in **fixed per-field order** (too short, too long, below, above, pattern), so regeneration diffs are stable.
+- An object whose properties live in a **union branch** is built from that branch. A node declaring
+  `type: "object"` alongside a `oneOf`/`anyOf` used to produce `{}` — the explicit type sent it
+  straight to the object case, which composes through `allOf` only. The same node *without* a type
+  worked, which is what kept it hidden.
 - `exclusiveMinimum`/`exclusiveMaximum` are honoured in **both spellings** — 3.0's boolean modifier
   on `minimum`/`maximum`, and 3.1's number — so `{maximum: 1, exclusiveMaximum: true}` is never
   answered with `1`, the one value it excludes. Where a `format` and a `pattern` are both declared,
