@@ -128,6 +128,11 @@ POST /things unexpected extra property -> 400 # additionalProperties: false
 The rules that keep the matrix sane:
 
 - Boundary cases run in **fixed per-field order** (too short, too long, below, above, pattern), so regeneration diffs are stable.
+- The field-name heuristics yield to anything the schema actually states — an explicit `pattern`,
+  and equally a length bound: `client_id: {type: "string", maxLength: 20}` never mentions uuid, and
+  the 36-character one does not fit. An explicit `format` is different: there the schema asked for
+  the value itself, and a `maxLength` too small for it is the spec contradicting itself, which crust
+  leaves visible.
 - The `enum` member picked satisfies the schema's own declared `type` — real specs write
   `{type: "string", enum: [true, false]}`. And `allOf` is merged as an **intersection**: `properties`
   and `required` are unioned across the branches, and where two bounds disagree the stricter governs
