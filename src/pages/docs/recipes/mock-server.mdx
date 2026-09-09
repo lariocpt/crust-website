@@ -140,9 +140,10 @@ The server walks the operation in this order to choose a body:
    - **OpenAPI 3.1 union types** — `"type": ["string", "null"]`, the form that replaced 3.0's
      `nullable: true` — synthesise the first **non-`null`** member, so a nullable field still gets
      representative data instead of a bare `null`.
-4. A body expands at most **20,000 schema nodes**. Past that a `$ref` terminates exactly as a cycle
-   does, so a truncated body still validates, and mock-server says so on stderr rather than leaving a
-   short answer unexplained. Some real graphs are *mutually* recursive — presalytics.io/ooxml has
+4. A body expands at most **20,000 schema nodes**. Past that a `$ref` to anything that can expand further terminates exactly
+   as a cycle does. A `$ref` to a **scalar** — a string, number, boolean or enum — is still followed:
+   it cannot recurse, costs one step, and is where the useful value lives, so refusing those too made
+   every enum-constrained field in a truncated body wrong for nothing saved. Truncation still leaves a body that validates, and mock-server says so on stderr. Some real graphs are *mutually* recursive — presalytics.io/ooxml has
    `Slide.Slides.Details` referencing `Shared.*.Details` referencing back — and with per-path cycle
    detection the cost of a complete body grows with the number of **paths**, not nodes: 52 million
    expansions for 134 responses and 53 seconds for that one file, which from outside is a hang.
