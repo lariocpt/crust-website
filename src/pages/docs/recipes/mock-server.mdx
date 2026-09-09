@@ -84,7 +84,11 @@ The server walks the operation in this order to choose a body:
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
      classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, literals and alternation —
      and **verified against the real regex before it is used**, so a construction crust
-     cannot manage degrades to a neutral value rather than a confidently wrong one; then clamped to `minLength` / `maxLength`. Plain `"string"` appears only when
+     cannot manage degrades to a neutral value rather than a confidently wrong one; then clamped to `minLength` / `maxLength` — except that a **format-derived value is never
+     truncated**. A schema saying `{format: uuid, maxLength: 8}` contradicts itself, since a uuid is
+     36 characters; crust keeps the valid uuid rather than emitting `"00000000"`, which would trade
+     a `maxLength` violation for a `format` one and lose the useful value on the way. Lengthening
+     still applies: padding an email to `minLength` is harmless where truncating a uuid is not. Plain `"string"` appears only when
      nothing constrains the field. A pattern crust cannot sample — a character class like
      `[0-9]+`, as opposed to `\d{3}` — falls back to a neutral value rather than a guess:
      knowingly wrong beats confidently wrong, and `--validate` reports it.
@@ -92,7 +96,9 @@ The server walks the operation in this order to choose a body:
      allows** — a `{"minimum": 1}` page counter is never mocked as `0`. Both `exclusiveMinimum` /
      `exclusiveMaximum` spellings are honoured (3.1's numeric bound and 3.0's boolean modifier).
    - `boolean` → `false`.
-   - `array` → `[item]`.
+   - `array` → `[item]`, repeated to meet `minItems` or trimmed to `maxItems` — a `maxItems: 0`
+     mocks as `[]`, not as a one-element array its own validator would reject. Capped at 100
+     elements, because a mock body nobody can read helps nobody.
    - `object` → every property generated.
    - `enum` → first value; `const` → that value.
    - schema-level `examples` (OpenAPI 3.1's array form) → first entry.
