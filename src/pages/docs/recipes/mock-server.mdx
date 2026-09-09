@@ -109,6 +109,8 @@ mock-server: 3 path(s) use Express-style ':param' — OpenAPI templates paramete
              so these are matched LITERALLY and will not match a real value
 ```
 
+The response carries the **content type the spec documents** for that operation — `application/json` when present, otherwise the first documented type. A non-JSON type (`text/html`, `application/javascript`) is written as text rather than serialised as JSON: a mock that claims `text/html` and sends a JSON document is lying twice, and `--proxy` rejects its own mock for it.
+
 **Status code selection** within a matched operation:
 
 ```
