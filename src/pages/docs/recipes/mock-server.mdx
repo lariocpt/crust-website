@@ -141,7 +141,10 @@ The server walks the operation in this order to choose a body:
 5. Local `$ref`s into `components.schemas.*` are resolved. A **cyclic** `$ref` terminates with the
 properties its schema REQUIRES and nothing else. Dropping the optional ones is what makes it finite,
 since the property that closes the loop is nearly always optional — a slot may contain a sub-slot.
-A required property that closes the loop gets the empty shape of the type it declares. Both the
+A required property that closes the loop gets the empty shape of the type it declares, and a
+required **array** of the type being terminated becomes `[]` — which satisfies `required` and is
+finite, where one element would be a terminating level carrying none of its own required properties
+(`minItems` still wins where the spec asks for elements). Both the
 required list and that type are read **through `allOf`** — real specs compose recursive types out of
 branches rather than declaring them on the node (bitbucket's `comment.parent` and `commit.parents`
 are the canonical case), and reading the node alone found nothing and terminated with `null` — `{}` for an
