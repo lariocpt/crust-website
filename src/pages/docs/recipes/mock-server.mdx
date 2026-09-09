@@ -94,7 +94,10 @@ The server walks the operation in this order to choose a body:
    - `object` → every property generated.
    - `enum` → first value; `const` → that value.
    - schema-level `examples` (OpenAPI 3.1's array form) → first entry.
-   - `allOf` → merged.
+   - `allOf` → merged when its branches are objects; when they are not, the first branch that
+     produces a value. `allOf` means "this, refined", and what is refined is often a scalar —
+     `allOf: [{ $ref: "#/components/schemas/Status" }]` around an enum is the common idiom.
+     Objects still win a mixed `allOf`.
    - `oneOf` / `anyOf` → first branch.
    - **OpenAPI 3.1 union types** — `"type": ["string", "null"]`, the form that replaced 3.0's
      `nullable: true` — synthesise the first **non-`null`** member, so a nullable field still gets
