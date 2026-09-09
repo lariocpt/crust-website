@@ -82,9 +82,13 @@ The server walks the operation in this order to choose a body:
 3. Otherwise the schema is walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
-     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, literals and alternation —
-     and **verified against the real regex before it is used**, so a construction crust
-     cannot manage degrades to a neutral value rather than a confidently wrong one; then clamped to `minLength` / `maxLength`. Plain `"string"` appears only when
+     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, literals, and alternation
+     **between top-level branches** — and **verified against the real regex before it is used**,
+     so a construction crust cannot manage degrades to a neutral value rather than a confidently
+     wrong one; then clamped to `minLength` / `maxLength`. Alternation is read only where it
+     separates whole branches: a `|` nested in a group (`^(a|b)$`) is not something the walk can
+     choose between, so it degrades like any other declined construction, while a pipe inside a
+     character class (`[\w|-]`) is just one of its members and is built normally. Plain `"string"` appears only when
      nothing constrains the field. A pattern crust cannot sample — a character class like
      `[0-9]+`, as opposed to `\d{3}` — falls back to a neutral value rather than a guess:
      knowingly wrong beats confidently wrong, and `--validate` reports it.
