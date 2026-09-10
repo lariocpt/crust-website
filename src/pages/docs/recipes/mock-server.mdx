@@ -176,10 +176,15 @@ The server walks the operation in this order to choose a body:
    and acting on them makes correct bodies wrong. A **cyclic** `$ref` terminates with the
 properties its schema REQUIRES and nothing else. Dropping the optional ones is what makes it finite,
 since the property that closes the loop is nearly always optional — a slot may contain a sub-slot.
-A required property that closes the loop gets the empty shape of the type it declares, and a
-required **array** of the type being terminated becomes `[]` — which satisfies `required` and is
-finite, where one element would be a terminating level carrying none of its own required properties
-(`minItems` still wins where the spec asks for elements). Both the
+A required property that closes the loop gets the empty shape of the type it declares. A required
+**array** of the type being terminated is finite either way, and which answer is right depends on
+the ELEMENT. Where the element type requires nothing of its own, the array is filled to `minItems`
+with that empty shape — it costs nothing and satisfies the bound, and connect's evaluation forms
+need exactly this (`EvaluationFormItem` requires nothing, so a terminated section keeps its
+`minItems: 1`). Where the element has required properties, the array stays `[]`: one element
+carrying none of them is valid at the top and wrong at every level below, so `--validate` reports
+the bound rather than crust hiding it behind a value that only looks right. quicksight's sheet
+layouts are that case — `Layout` requires `Configuration`. Both the
 required list and that type are read **through `allOf`** — real specs compose recursive types out of
 branches rather than declaring them on the node (bitbucket's `comment.parent` and `commit.parents`
 are the canonical case), and reading the node alone found nothing and terminated with `null` — `{}` for an
@@ -188,10 +193,16 @@ object, `[]` for an array, read from `type` or, where a spec omits it, from the 
 which stopped the recursion just as well but put the wrong type in the body, so crust's own
 validator rejected it.
 
-Every rule above exists so the mock cannot produce a body `--validate` would reject. That is not a
-figure of speech: crust's mock and its validator read the same file, so a body one makes and the
-other refuses is unambiguously a crust bug, and all four of the rules new in this release were
-found exactly that way.
+Every rule above exists to keep the mock from producing a body `--validate` would reject. That is
+not a figure of speech: crust's mock and its validator read the same file, so a body one makes and
+the other refuses is unambiguously a crust bug, and the rules new in this release were found
+exactly that way — a sweep of 128,546 responses across 4,138 real specs currently leaves **three**
+that still fail, all the same one.
+
+It is a goal rather than a guarantee, and the honest cases are named above: an element with its own
+requirements, and a graph past the node budget. Both leave a required array empty on purpose,
+because the alternative moves the violation somewhere less visible. `--validate` is what tells you
+which you have.
 
 A path templated the Express way — `/things/:id` rather than OpenAPI's `/things/{id}` — is matched **literally**. crust does not rewrite it, because silently reinterpreting your spec is a worse failure than the one it fixes; instead it names the count on stderr at boot, since the route total would otherwise look healthy while those routes are unreachable by any real client:
 
