@@ -285,6 +285,8 @@ The import specifier in generated files is rewritten relative to `--out`, so a p
 
 The crust repo ships a complete runnable module to copy at `examples/gen-setup.ts` — the same shape as above with working `fetch`-based auth helpers to replace with your API's flow.
 
+**crust does not ship `./tests/gen-setup.ts`** — that path is the default by convention in *your* repo. Run `gen-fixtures` without one and it says so, naming the path it looked at, the template to copy, and the `--setup` flag.
+
 ## What a generated file looks like
 
 ```ts
