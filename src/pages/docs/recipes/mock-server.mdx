@@ -534,7 +534,7 @@ The mock is just an HTTP server — drive it with normal crust pipelines.
 Honest about what doesn't work yet:
 
 - Remote `$ref` resolution
-- `additionalProperties: false` is **not** enforced by plain `--validate` — add `--strict` to enforce the literal-`false` form (see the governing rule above)
+- `additionalProperties: false` is **not** enforced by plain `--validate` — add `--strict` to enforce the literal-`false` form (see the governing rule above). It is opt-in because most specs never ask for it: of 399 APIs-guru specs, **29 (7.3%) declare it somewhere**, across 1,176 nodes. Where a spec does write it, a `--strict` rejection is that spec's own contract being honoured rather than crust inferring one.
 - Faker-style data (every `string` is just `"string"` unless the format is known)
 - Hot-reload on spec changes
 
