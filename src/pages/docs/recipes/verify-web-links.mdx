@@ -34,7 +34,7 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   <Fragment slot="ts">
   ```ts
   // Programmatic — exit code drives CI
-  import { runCli } from "crust/verifyWebLinks";
+  import { runCli } from "crust/verifyWebLinks/cli";
 
   const code = await runCli([
     "--base-url", "https://example.com",
@@ -129,12 +129,15 @@ Keys are the literal property/name attribute — `title`, `description`, `og:tit
 verify-web-links "$PREVIEW_URL" --fixtures site/**/*.meta.crust.ts
 ```
 
-Or chain with other crust builtins for a full pre-deploy gate:
+Or combine the builtins into a full pre-deploy gate. Each is its own `crust -c`
+because a builtin runs in-process: `mock-server … &` would hand `sh` a name it
+does not have, and inside crust the `&` is refused outright.
 
 ```bash
-mock-server ./openapi.yaml -p4000 &
-test-fixture fixtures/*.crust.ts
-verify-web-links http://localhost:3000 --fixtures site/*.meta.crust.ts
+crust -c 'mock-server ./openapi.yaml -p4000' &
+crust -c 'wait :4000/pets --timeout 20s'
+crust -c 'test-fixture fixtures/*.crust.ts'
+crust -c 'verify-web-links http://localhost:3000 --fixtures site/*.meta.crust.ts'
 ```
 
 ## Exit codes

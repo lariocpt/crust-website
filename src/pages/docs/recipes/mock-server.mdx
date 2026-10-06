@@ -38,15 +38,20 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Embed in a test harness — start + stop programmatically
-  import { startMockServer } from "crust/mockServer";
+  // Embed in a test harness — start + stop programmatically. In-repo these
+  // paths are ../src/mockServer/…; the library isn't on npm yet.
+  import { loadSpec } from "crust/mockServer/loadSpec";
+  import { startServer } from "crust/mockServer/server";
 
-  const handle = await startMockServer({
-    swagger: "./openapi.yaml",
+  const { spec } = await loadSpec("./openapi.yaml");
+  const handle = await startServer({
+    spec,
     port: 4000,
-    host: "0.0.0.0",
+    hostname: "0.0.0.0",
+    stateful: true,
   });
 
+  // handle.port is the port actually bound — pass 0 and read it back.
   // ... your tests ...
 
   await handle.stop();
@@ -499,17 +504,24 @@ Step 3's failure message prints the violations object itself, and `violations.nd
 
 ## Pairing with crust pipelines
 
-The mock is just an HTTP server — drive it with normal crust pipelines.
+The mock is just an HTTP server — drive it with normal crust pipelines. Each
+line is its own `crust -c` because a builtin runs **in-process**: `mock-server …
+&` at a shell prompt would hand `sh` a name it does not have, and inside crust a
+`&` is refused for the same reason. Background the process, then gate on
+readiness instead of `sleep` — `:4000/pets` because a spec-driven mock has no
+root route, so a bare `wait :4000` would probe `/`, get a 404, and time out on a
+server that is perfectly up (`wait port:4000` is the path-free alternative).
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
   # Smoke-test every fixture against the mock
-  mock-server ./openapi.yaml -p4000 &
-  test-fixture fixtures/*.crust.ts -o report.md
+  crust -c 'mock-server ./openapi.yaml -p4000' &
+  crust -c 'wait :4000/pets --timeout 20s'
+  crust -c 'test-fixture fixtures/*.crust.ts -o report.md'
 
   # Burn-in: 10k requests across 100 workers
-  range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats
+  crust -c 'range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats'
   ```
   </Fragment>
   <Fragment slot="ts">
