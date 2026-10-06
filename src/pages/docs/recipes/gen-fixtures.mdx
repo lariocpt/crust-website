@@ -28,7 +28,7 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   <Fragment slot="ts">
   ```ts
   // Programmatic — regenerate as part of a CI step
-  import { generateFixtures } from "crust/genFixtures";
+  import { generateFixtures } from "crust/genFixtures/generate";
 
   const { outDir, files, totalCases } = await generateFixtures({
     swagger: "./openapi.json",          // URL or path; Swagger 2.0 auto-converted

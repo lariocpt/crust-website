@@ -191,18 +191,22 @@ snippets — is its own recipe: [CI load gates](/docs/recipes/ci-load-gates/).
   <Fragment slot="ts">
   ```ts
   // Programmatic runner — embed in CI, gate on percentiles
-  import { runFixtures } from "crust/testFixture";
+  import { runFixtures } from "crust/testFixture/runner";
 
-  const report = await runFixtures({
+  // One entry per fixture: { fixture, count, pass, fail, error, p50, p95,
+  // p99, minMs, maxMs, meanMs, statusCodes }. Writing JSON is the CLI's job
+  // (-o report.json); the runner returns the numbers.
+  const results = await runFixtures({
     target: "stress.crust.ts",
     count: 1000,
     threads: 32,
-    out: "report.json",
   });
 
-  if (report.stress.p95 > 250) {
-    console.error(`p95 regression: ${report.stress.p95}ms`);
-    process.exit(1);
+  for (const r of results) {
+    if (r.p95 > 250) {
+      console.error(`${r.fixture}: p95 regression, ${r.p95}ms`);
+      process.exit(1);
+    }
   }
   ```
   </Fragment>
