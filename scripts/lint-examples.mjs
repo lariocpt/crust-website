@@ -80,6 +80,15 @@ for (const root of ROOTS) {
         // "opaque shell" began failing here and nowhere else.
         if (line && !/<[a-z][a-z|_-]*>|\[-{1,2}[a-z]/i.test(line)) examples.push({ file, line });
       }
+      // A buffer left open at the end of the fence is NOT a formatting quirk to
+      // forgive: it is an example whose brackets never close, which is exactly
+      // the truncation a reader would paste and crust would reject. Dropping it
+      // silently was demonstrated to hide a broken example — `range(1,` in a
+      // fresh fence linted as "0 failed" and was not even counted. So hand it
+      // to crust like any other example and let it fail where it belongs.
+      if (buf.trim()) examples.push({ file, line: buf.trim() });
+      open.q = null;
+      open.depth = 0;
     }
   }
 }
