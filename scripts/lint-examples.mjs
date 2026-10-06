@@ -70,7 +70,15 @@ for (const root of ROOTS) {
         if (open.q || open.depth > 0) continue;
         const line = buf.trim();
         buf = "";
-        if (line) examples.push({ file, line });
+        // A synopsis is documentation shape, not a command: `cd <dir>`,
+        // `test-fixture <glob> [-j N]`. `<word>` and `[-flag]` are unambiguous
+        // placeholder syntax and neither appears in a real crust line. Same rule
+        // as crust's own tests/docs-lint.test.ts — both linters must accept and
+        // reject the same text, or the two repos drift. This became visible
+        // when `--check` started parsing shell stages with `sh -n`: `cd <dir>`
+        // is a redirect to nothing, so a synopsis line that had always been
+        // "opaque shell" began failing here and nowhere else.
+        if (line && !/<[a-z][a-z|_-]*>|\[-{1,2}[a-z]/i.test(line)) examples.push({ file, line });
       }
     }
   }

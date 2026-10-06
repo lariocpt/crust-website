@@ -62,10 +62,10 @@ If your logs are JSON-per-line, parsing and projecting is one lambda each.
   ```bash
   # Read each .log file, split into lines, parse as JSON, keep
   # severity=error, project the message field
-  lines **/*.json.log
-    | grep .
-    | (line => JSON.parse(line))
-    | filter (j => j.severity === 'error')
+  lines **/*.json.log \
+    | grep . \
+    | (line => JSON.parse(line)) \
+    | filter (j => j.severity === 'error') \
     | (j => j.msg)
   ```
   </Fragment>
@@ -91,9 +91,9 @@ If your logs are JSON-per-line, parsing and projecting is one lambda each.
   <Fragment slot="bash">
   ```bash
   # Extract error codes; filter drops the lines that had none
-  lines **/*.log
-    | grep ERROR
-    | (l => (l.match(/ERR_[A-Z0-9_]+/) ?? [null])[0])
+  lines **/*.log \
+    | grep ERROR \
+    | (l => (l.match(/ERR_[A-Z0-9_]+/) ?? [null])[0]) \
     | filter (c => c)
   # → stream the codes; pipe into your favorite counter
   ```
