@@ -18,7 +18,8 @@ code. It starts from a sitemap and checks the graph underneath it: links,
 | meta vs `--fixtures` | a keyed value differs, or a predicate returns falsy |
 
 Exit codes: `0` all clear, `1` verification failures, `2` bad arguments or an
-unreachable sitemap. That `2` also covers `--site-map-url` together with
+unreachable sitemap. With `--strict`, `1` also covers a run that finished having
+left discovered links unchecked. That `2` also covers `--site-map-url` together with
 `--base-url`, neither of them given, `no fixture files matched <glob>`,
 `--concurrency must be >= 1`, and `unexpected argument` — so a typo never looks
 like a clean crawl.
@@ -46,14 +47,19 @@ nothing. Read the `note:` lines and `totals` before believing a green run.
 
 | Symptom | What it means |
 |---|---|
-| `0 page(s), 3 asset(s), 0 failure(s)` | the responses were not `text/html`. A page served as `text/plain` counts as an **asset** and its links are never read. Measured with the same bytes and only the header changed: `text/plain` → 0 pages / 0 failures / exit **0**; `text/html` → 1 page / 1 failure / exit **1** |
+| `N page(s) had to be recognised from their body` | the server sends HTML without saying `text/html`. crust followed the links anyway — the mislabel is the site's bug, and the note is there so a green run does not hide it |
+| `N page(s) NOT read as HTML` | a sitemap entry or `<a>` target that is neither declared HTML nor smells like it (a JSON endpoint). Its links were **not** followed: the crawl ended there |
 | a note naming a count (`anchors skipped…`, `stopped at --max-pages…`) | that work did not happen. `--no-recurse` and `--no-anchors` produce it deliberately; a cap produces it by accident |
 | `"parsed": false` on a page in `--json` | no links and no ids were extracted from that page, so nothing was provable from it |
 
 `--max-pages N` is a safety valve, not a fast mode: the crawl stops early, the
 unchecked count *is* reported (`note: --max-pages reached — 10 discovered URL(s)
 NOT checked`, `totals.dropped` in JSON) — and the exit code still says 0. Treat
-a capped run as inconclusive, and grep `dropped` in a gate.
+a capped run as inconclusive.
+
+`totals.complete` is the one field that means "nothing was left unchecked":
+false on any of the above. It is what a gate should read, instead of a list of
+fields someone has to keep updated by hand.
 
 The same honesty applies to anchors. With `--no-recurse`, a fragment link to a
 page outside the sitemap is not a failure, because crust never read that page:
@@ -69,6 +75,11 @@ and the report keeps them apart on purpose.
 
 ## In CI
 
+**`--strict` is the CI flag.** It exits 1 when the run finished having left
+discovered links unchecked — a `--max-pages` cut-off, an unchecked `#fragment`,
+a page crust could not read — so a bounded crawl cannot pass as a clean one:
+`verify-web-links --base-url https://example.com --strict --max-pages 500`.
+
 A builtin runs in-process and cannot sit mid-pipeline:
 `verify-web-links … | assert (…)` is refused with *"give it a line of its own"*.
 Redirect the whole invocation, then judge the report:
@@ -79,13 +90,14 @@ crust -c 'verify-web-links --base-url https://example.com --json --no-progress' 
 
 ```crust
 read report.json | (s => JSON.parse(s)) | assert (r => r.totals.failures === 0)
-read report.json | (s => JSON.parse(s)) | assert (r => r.totals.dropped === 0 && r.totals.anchorsSkipped === 0)
+read report.json | (s => JSON.parse(s)) | assert (r => r.totals.complete)
 ```
 
 `read` yields each file's **contents as one item**, so `JSON.parse` receives the
 whole document (a `lines` source would hand it one line at a time). The first
-line fails on a real failure; the second catches the inconclusive case above —
-that is the one that keeps a capped or partially-skipped crawl from passing.
+line fails on a real failure; the second catches every inconclusive case at
+once — `complete` is false if anything was dropped, if any `#fragment` went
+unchecked, or if any page could not be read.
 
 ## Meta fixtures
 
