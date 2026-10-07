@@ -96,9 +96,9 @@ The shell parser classifies each `|`-separated stage by looking at its first tok
 
 | Trigger | Stage kind |
 |---|---|
-| Contains `*` / `?` / `[…]` | Glob source |
+| Contains `*` / `?` / `[…]` — a tight bracket that is not a literal attempt | Glob source |
 | Matches `range(a, b)` | Range source |
-| Starts with `{` or `[` **and is JSON-shaped** | JSON-literal source (a half-typed literal = hard error, never shell). Bracket-headed *shell* — `{ echo a; echo b; } \| cat`, `[ -f f ] && echo ok` — is a shell stage |
+| Starts with `{` or `[`, and parses or is tight JSON-shaped text (`{"n":$N}`, `[1,$N]`) | JSON-literal source (a half-typed literal = hard error, never shell). The *spaced* shell shapes — `{ echo a; echo b; } \| cat`, `[ -f f ] && echo ok` — are shell stages |
 | Starts with `read <path\|glob>` | Whole-file source — one item per file |
 | Starts with `(` and contains `=>` | TypeScript lambda |
 | Starts with `assert (` | Assert stage — falsy or empty upstream fails the pipeline |
@@ -108,10 +108,14 @@ The shell parser classifies each `|`-separated stage by looking at its first tok
 | First token is a `crust.fn`-registered function | Registered function (per-item transform) |
 | Anything else | Shell stage — handed to `sh -c "<text>"` |
 
-A literal is claimed only when the text **is** JSON, or still looks like someone
-typing one (a quote or a colon, no shell operator). So the shell idioms that
-begin with a bracket keep their shell meaning in any position: `{ echo a; echo b; } | cat`
-groups, `[ -f dist/index.html ] && echo built` tests.
+A literal is claimed when the text **parses** — whatever it contains, so
+`{"cmd": "a && b"}` is one — or when tight text still looks like someone typing
+one: a quote, colon, comma, or a `$` inside the brackets (`{"n":$N}`, `[1,$N]`).
+The shell's own bracket shapes are always *spaced*, so those idioms keep their
+shell meaning in any position: `{ echo a; echo b; } | cat` groups,
+`[ -f dist/index.html ] && echo built` tests, and `[abc]*` stays a glob. And
+since a spaced head is shell, write arrays tight — `[1,$N]` is the array,
+`[ $N ]` is a file test.
 
 Single-stage pure-shell lines (`ls -la`, `git status`) short-circuit: crust execs `sh -c` with **inherited stdio** so colors, paging, and TUIs work normally. Mixed pipelines stream items through TS land.
 
