@@ -37,7 +37,7 @@ first slot is **your data** and each function decides what to do with it:
 
 | Function | As a source | Mid-pipeline |
 |---|---|---|
-| `base64 [-d\|decode]` | encodes the literal argument | encodes (or decodes) **each item** |
+| `base64 [-d\|decode] [-f\|--file <path>] [-o\|--out <path>]` | encodes the literal argument — or a file's bytes with `--file` | encodes (or decodes) **each item**; the item is data, never an option |
 | `salt [bytes] [hex\|base64\|base64url]` | one salt, size = the argument | **one salt per item**; the size is the argument *trailing* the item |
 | `jwt sign\|verify\|decode --secret <s>` | payload/token = the argument | the item **is** the payload (sign) or the token (verify/decode) |
 | `sql "<query>" [params…]` | streams rows | the query stays the one you wrote; the item **binds as the first parameter** when the line declares none |
@@ -133,8 +133,31 @@ Tools that produce a file themselves have a flag for it (`-o` / `--outfile` /
   read in.ts | base64   → YWxwaGEKYmV0YQo=      "alpha\nbeta\n"   = /usr/bin/base64
   lines in.ts | base64  → YWxwaGE= / YmV0YQ==   once per line
   ```
-  `read` yields the whole content, so it is the byte-exact form; `lines` splits
-  it first, so per-line encodes are what you get.
+  `read` yields the whole content, so it is the byte-exact form *for text*;
+  `lines` splits it first, so per-line encodes are what you get. A pipeline
+  decodes UTF-8 on the way, so it is **not** binary-safe: on a 26-byte PNG,
+  `read logo.png | base64` gives `77+9UE5H…` where `/usr/bin/base64 -w0 logo.png`
+  gives `iVBORw0KGgo…`.
+- **A file's bytes are `--file`, and `--out` writes the answer.** `base64 --file
+  logo.png` reads bytes and skips the pipeline entirely; `--out <path>` puts the
+  result in a file, which is what a redirect would have done if a function stage
+  could take one. `base64 --file logo.b64 -d --out logo-copy.png` is the way
+  back, byte for byte. Saying the path out loud: crust now prints a `note:` on
+  stderr when the operand you typed *is* a file, and leaves stdout alone. These
+  two flags are current on `main`; they are not in the published release this
+  page's grammar gate lints against, which is why they appear in prose here and
+  not in a ` ```crust ` fence.
+- **Options are what you typed, never what the item says.** A mid-pipeline
+  function used to scan every argument for `-d`, so data that read `-d` flipped
+  the mode and the input disappeared: `printf '%s' -d | crust -c 'stdin | base64'`
+  died with `base64: missing input` (exit 1). It is `LWQ=` now — the two
+  characters, encoded. The flip side is that a typo'd flag is refused instead of
+  encoded: `base64 --desc hello` printed `LS1kZXNj` and exit 0, and now exits 1
+  naming the options it does have.
+- **Decoding checks its input.** `not base64!!!` decoded to three replacement
+  characters and exit 0, because Node's base64 decoder skips characters it does
+  not know. Anything outside `A-Za-z0-9+/=`, base64url's `-` and `_`, and
+  whitespace is now an error.
 - **`sort`/`head`/`wc` are ambiguous by design.** Reading `… | sort` as sh's is
   correct; reading `base64 hello` as `/usr/bin/base64` is not.
 - **A redirect never belongs to crust.** Either end the line with a shell stage
