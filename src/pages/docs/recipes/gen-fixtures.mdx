@@ -73,7 +73,7 @@ For every operation the spec documents:
 | **400** per boundary | Same precondition — one case per violated `minLength` / `maxLength` / `minimum` / `maximum` / `pattern`, for required **and** optional fields. Nullable fields count: both the zod-style `anyOf: [X, {type: "null"}]` wrapper and OpenAPI 3.1's `"type": ["string", "null"]` union are unwrapped to the real schema first, so a nullable field gets its boundary cases under either spelling. | same as above |
 | **400** extra property | The body schema has `additionalProperties: false`. | `status: 400`, `code === "validation"` |
 
-Every 400 case perturbs a **schema-valid base body** — required fields are synthesized from the schema (format-aware: emails, uuids, dates, simple digit-pattern sampling) so exactly one thing is wrong per case. The wrong-type case for a nullable field is a value of a genuinely wrong type, never `null`: the union permits `null`, so sending it would assert nothing. Authz cases (401/403) also carry a valid body, because routes that validate before the auth middleware would otherwise 400 ahead of the status under test.
+Every 400 case perturbs a **schema-valid base body** — required fields are synthesized from the schema (format-aware: emails, uuids, dates, and values built from the field's own `pattern` — classes, quantifiers and groups, each verified against the regex before it is used) so exactly one thing is wrong per case. The wrong-type case for a nullable field is a value of a genuinely wrong type, never `null`: the union permits `null`, so sending it would assert nothing. Authz cases (401/403) also carry a valid body, because routes that validate before the auth middleware would otherwise 400 ahead of the status under test.
 
 ### Response schemas ride along — `output.schema`
 
@@ -164,12 +164,16 @@ The rules that keep the matrix sane:
   the validator, so it asks it rather than guessing.
 - A missing `type` is **inferred from the keywords present**, sharing one implementation with the
   mock — so `{minLength: 3}` with no `type` now yields the boundary case it silently skipped before.
-- A **body crust cannot fill carries no cases it cannot attribute**. The pattern sampler declines
-  what it cannot build — alternation inside a group, an AWS id like
-  `^(subnet-[0-9a-f]{8}|subnet-[0-9a-f]{17})$` — and returns a knowingly-wrong placeholder, which in
+- A **body crust cannot fill carries no cases it cannot attribute**. The pattern sampler returns a
+  knowingly-wrong placeholder for a pattern it cannot read, which in
   a base body made a case about `name` invalid in `subnetId`. The 400 then names `subnetId`, so the
   case fails a correct implementation or passes for a reason unrelated to its own name; 1,799 of the
-  164,473 request-body fields in a 4,138-spec corpus were in that state. The base body is now checked
+  164,473 request-body fields in a 4,138-spec corpus were in that state. Most of them were readable
+  all along — crust was refusing groups. Reading `(?:…)`, `(a|b)` and `(…){n}` took the specs that
+  were still losing cases from 186 declined fields down to 11, with nothing that used to build
+  falling back; what remains is a lookahead, `\A`/`\Z` anchors, and a JavaScript regex literal
+  written into `pattern`, where JSON Schema takes the leading slash as a literal and nothing can
+  satisfy it. The base body is now checked
   with crust's own validator and every case whose 400 could name a field other than the one it
   asserts is dropped — keeping the cases about the invalid field itself, and the 401/403/404 cases,
   whose gate answers before the body is read. What was dropped is printed

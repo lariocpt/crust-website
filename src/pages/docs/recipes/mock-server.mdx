@@ -92,14 +92,18 @@ The server walks the operation in this order to choose a body:
    walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
-     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals, and alternation
-     **between top-level branches** —
-     and **verified against the real regex before it is used**, so a construction crust
-     cannot manage degrades to a neutral value rather than a confidently wrong one. Alternation is
-     read only where it separates whole branches: a `|` nested in a group (`^(a|b)$`) is not
-     something the character walk can choose between, so it degrades like any other declined
-     construction, while a pipe inside a character class (`[\w|-]`) is just one of its members
-     and is built normally. Values are then clamped to `minLength` / `maxLength` — but **never in a way that unmakes the match just
+     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals, and **groups**: `(?:…)` is read as the
+     ordinary group it is, an alternation inside a group takes its first buildable branch, and a
+     group counts as one atom so `(…){n}`, `(…)*`, `(…)+` and `(…)?` repeat what the group matched.
+     That is the difference between a placeholder and a value for the shapes specs really write —
+     `^(subnet-[0-9a-f]{8}|subnet-[0-9a-f]{17})$` yields `subnet-00000000`,
+     `^([0-9]{1,3}\.){3}[0-9]{1,3}$` yields `0.0.0.0`, and the base64 content pattern yields `AA==`.
+     All of it **verified against the real regex before it is used**, so a construction crust
+     cannot manage degrades to a neutral value rather than a confidently wrong one — reading more
+     can cost a build that should have worked, never a value that is wrong. Alternation is never
+     **joined**: `(a|b)` builds one branch, never `a|b`, because the match is an unanchored test —
+     a joined value passes it and breaks the `maxLength` beside it. A pipe inside a character class
+     (`[\w|-]`) is just one of its members and is built normally. Values are then clamped to `minLength` / `maxLength` — but **never in a way that unmakes the match just
      verified**. A length is bought by widening a quantifier that was already open-ended (`+`, `*`,
      `{n,}`); a fixed-width `{3}` is never widened, since that would be the same mistake in a new
      place. Where a pattern and a length bound cannot both hold, the pattern wins — it is the
@@ -109,8 +113,11 @@ The server walks the operation in this order to choose a body:
      36 characters; crust keeps the valid uuid rather than emitting `"00000000"`, which would trade
      a `maxLength` violation for a `format` one and lose the useful value on the way. Lengthening
      still applies: padding an email to `minLength` is harmless where truncating a uuid is not. Plain `"string"` appears only when
-     nothing constrains the field. A pattern crust cannot sample — a character class like
-     `[0-9]+`, as opposed to `\d{3}` — falls back to a neutral value rather than a guess:
+     nothing constrains the field. What crust still declines — a lookahead or lookbehind, a named
+     or atomic group, a back-reference, nesting past eight levels, `\A`/`\Z` (Python anchors, which
+     ECMA-262 reads as the letter `A`), or a pattern written as a JavaScript regex literal
+     (`/^[a-z0-9._]+$/`, where JSON Schema takes the leading slash as a literal and nothing can
+     satisfy it) — falls back to a neutral value rather than a guess:
      knowingly wrong beats confidently wrong, and `--validate` reports it.
    - `integer` / `number` → `0`, **or the nearest value the schema's own `minimum` / `maximum`
      allows** — a `{"minimum": 1}` page counter is never mocked as `0`. Both `exclusiveMinimum` /
