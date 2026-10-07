@@ -89,6 +89,8 @@ Output is deterministic and byte-stable — check it in, regenerate, review the 
 
 The honest limit, which the skill states plainly: **SQL assertions are not derivable from a spec.** Add those by hand in your own `.pipes`. And the `--out` directory is deleted and recreated every run, so never hand-edit generated files.
 
+What crust cannot attribute it does not emit: a case whose expected 400 could only be explained by a field it does not mention is dropped, and the drop is named on stdout — a silently smaller suite would look like coverage.
+
 ## The workflow it recommends
 
 1. `gen-fixtures` against the spec, run the matrix and flows, fix what fails.

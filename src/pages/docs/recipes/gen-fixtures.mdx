@@ -164,6 +164,17 @@ The rules that keep the matrix sane:
   the validator, so it asks it rather than guessing.
 - A missing `type` is **inferred from the keywords present**, sharing one implementation with the
   mock — so `{minLength: 3}` with no `type` now yields the boundary case it silently skipped before.
+- A **body crust cannot fill carries no cases it cannot attribute**. The pattern sampler declines
+  what it cannot build — alternation inside a group, an AWS id like
+  `^(subnet-[0-9a-f]{8}|subnet-[0-9a-f]{17})$` — and returns a knowingly-wrong placeholder, which in
+  a base body made a case about `name` invalid in `subnetId`. The 400 then names `subnetId`, so the
+  case fails a correct implementation or passes for a reason unrelated to its own name; 1,799 of the
+  164,473 request-body fields in a 4,138-spec corpus were in that state. The base body is now checked
+  with crust's own validator and every case whose 400 could name a field other than the one it
+  asserts is dropped — keeping the cases about the invalid field itself, and the 401/403/404 cases,
+  whose gate answers before the body is read. What was dropped is printed
+  (`gen-fixtures: 2 case(s) skipped for POST /things …`): a smaller suite is a fact to report, not a
+  silence to ship.
 - Every `$ref` is inlined **once and shared**, and inlining stops after 200,000 nodes. Copying at
   each occurrence turned one real few-MB spec into a 2.03 GB structure and ran out of memory; past
   the budget a `$ref` inlines as `{}`, exactly as a cyclic one does, and gen-fixtures says so.
@@ -206,7 +217,7 @@ GET $GEN_URL_THINGS/$GEN_ID_THINGS -H "$GEN_AUTH_HEADER" | expect 404
 
 The generated `flows.gen.setup.ts` adapts your existing setup module — it calls `shared()` and `headersFor(ctx, "member")` to seed `$GEN_AUTH_HEADER`, and `resolvePath` per flow to seed `$GEN_URL_<T>`. Same contract, no extra exports.
 
-**Qualification** — a collection path `P` gets a flow when: it has a POST with an `application/json` request schema and a documented 2xx; an item path `P/{param}` with at least one of GET/PUT/PATCH/DELETE exists; `P` carries no path params beyond the scope param (nested collections are skipped with a stdout notice); and the created id's location is derivable from the POST's 2xx response — the media `example`, else `schema.properties`: top-level `id`, else the first object-valued property containing an `id`. Not derivable → skipped with a notice naming the path.
+**Qualification** — a collection path `P` gets a flow when: it has a POST with an `application/json` request schema and a documented 2xx; an item path `P/{param}` with at least one of GET/PUT/PATCH/DELETE exists; `P` carries no path params beyond the scope param (nested collections are skipped with a stdout notice); the created id's location is derivable from the POST's 2xx response — the media `example`, else `schema.properties`: top-level `id`, else the first object-valued property containing an `id` (not derivable → skipped with a notice naming the path); and the derived create body satisfies its own schema — a required field whose pattern crust cannot build would 400 on the flow's very first step, so the flow is skipped with a notice instead of shipped, and `flowOverrides` is how you fill it.
 
 ```bash
 gen-fixtures ./openapi.json --no-flows   # matrix only
