@@ -179,6 +179,21 @@ The rules that keep the matrix sane:
   whose gate answers before the body is read. What was dropped is printed
   (`gen-fixtures: 2 case(s) skipped for POST /things …`): a smaller suite is a fact to report, not a
   silence to ship.
+- **A drop notice says whose fault it is.** Some specs allow no value at all:
+  `{type: integer, format: int32, enum: ["0 (StandardHDD)", "1 (StandardSSD)", "2 (PremiumSSD)"]}` is
+  how one real spec writes a disk type — enum members as YAML strings beside an int32 — and
+  `{type: string, enum: [true, false]}` is how another writes a switch. No generator fills those
+  fields, so the notice names the spec's own contradiction and where it sits
+  (`… the SPEC contradicts itself: 'vmSpecs' — /diskType: enum ["0 (StandardHDD)", …] fails type …`)
+  rather than blaming crust's value, which would send you to open an issue against the wrong repo.
+  Fields where crust's own value is what breaks keep that wording, and a body with both says both.
+  Only keywords that MUST hold are followed, so an unsatisfiable *optional* field is not reported (a
+  base body omits optional fields) and a union counts as the spec's only when *every* branch is
+  unsatisfiable. Across the 39 APIs-guru specs that emit these notices, the mentions naming crust's
+  value went 68, then 24 once a body declared across `allOf` branches was read as one body, then 7.
+  The summary also ends with `note: N operation(s) left with no negative cases` (32 of them across
+  those specs): “40 cases dropped” and “this operation is uncovered” are different facts, and
+  per-operation notices are the first thing a CI step greps away.
 - Every `$ref` is inlined **once and shared**, and inlining stops after 200,000 nodes. Copying at
   each occurrence turned one real few-MB spec into a 2.03 GB structure and ran out of memory; past
   the budget a `$ref` inlines as `{}`, exactly as a cyclic one does, and gen-fixtures says so.
