@@ -211,6 +211,26 @@ The rules that keep the matrix sane:
 - Every `$ref` is inlined **once and shared**, and inlining stops after 200,000 nodes. Copying at
   each occurrence turned one real few-MB spec into a 2.03 GB structure and ran out of memory; past
   the budget a `$ref` inlines as `{}`, exactly as a cyclic one does, and gen-fixtures says so.
+- A keyword written **beside a `$ref`** is read by the rule the mock reads it with, not by "everything
+  wins". Narrowing ones apply — `enum`, `const`, `format`, `pattern`, the bounds, `example`,
+  `default` — that is how a spec restricts one use of a shared type. Structural ones do not: `type`,
+  `properties`, `items`, `required`, `additionalProperties`, `allOf`/`oneOf`/`anyOf`, `nullable`,
+  `discriminator`. Same reason the mock gives them up (they were illegal beside `$ref` before 3.1, so
+  Swagger-2 conversions are full of leftovers), plus one specific to the generator: a generated case
+  asserts against **crust's own validator**, which resolves a `$ref` and validates the resolved node
+  alone. britbox writes `{$ref: ItvDeleteAccountRequest, type: string}` in an openapi 3.0.0 document;
+  that used to inline as a string still carrying the target's `required` and `properties` — a node no
+  value satisfies — so crust's own base body failed crust's own validator and **all four of that
+  spec's JSON-body operations were dropped** behind `crust's own value for the body (type)`. They now
+  generate 16 cases, `missing required 'profileToken'` among them. The rule costs as well as gives:
+  digitalocean writes `{$ref: …, required: [droplet_ids]}`, and crust no longer fills that field,
+  because its validator would not 400 without it either — a case built from the sibling would assert a
+  400 the mock answers 200. Measured across 4,138 APIs-guru specs: 2,274 put a keyword beside a
+  `$ref`, 180 of them a structural one (2,003 sites — azure 104 specs, twilio 32; `type` 157,
+  `nullable` 43), and of those 180, 118 are Swagger 2.0, 56 are openapi 3.0.x and only 6 are 3.1.
+  Dialect is deliberately not part of the rule: 3.1 legalises siblings without making a conflicting
+  `type` any less ambiguous, and honouring them there would put the two halves of crust back in
+  disagreement over exactly those 6 specs.
 - `maxLength` above 4096 is skipped — checked-in files stay reviewable.
 - `maximum: Number.MAX_SAFE_INTEGER` is treated as an "unbounded" sentinel and skipped.
 - Zod-style nullable wrappers (`anyOf: [X, {type: "null"}]`) are unwrapped, so nullable fields get their boundary cases too.
@@ -219,7 +239,7 @@ The rules that keep the matrix sane:
 
 Two practical notes from running these against real servers:
 
-- **Dereference your spec first.** The generator reads `requestBody.content.application/json.schema` directly — a top-level `$ref` there means no base body and no 400/boundary cases for that op (you'll see only the auth/404 cases). If your toolchain emits `$ref`s into `components.schemas`, bundle/inline the spec before feeding it in.
+- **Local `$ref`s are inlined; remote ones are not.** A body written as `$ref: "#/components/schemas/Req"` is resolved and gets its full 400 matrix — checked against the published binary, which returned `missing required 'profileToken'`, `wrong type for 'profileToken'` and `unexpected extra property` for exactly that shape. A body written as `$ref: "./common.yaml#/components/schemas/Req"` is not: crust never fetches anything at generation time, so that operation gets no base body and no 400/boundary cases, only the auth/404 ones, and nothing is printed about it. Bundle or inline external refs (`$ref: "./…"` or `$ref: "https://…"`) before feeding a spec in.
 - **Validate before you look up.** The PATCH/PUT boundary cases hit a *random uuid* with an invalid body and expect `400`. A handler that checks existence first will 404 and fail the case. Spec-conformant servers validate the body before touching storage — the generated matrix enforces that ordering.
 
 ## Generated CRUD flows

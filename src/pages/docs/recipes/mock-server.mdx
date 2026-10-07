@@ -181,11 +181,13 @@ The server walks the operation in this order to choose a body:
    detection the cost of a complete body grows with the number of **paths**, not nodes: 52 million
    expansions for 134 responses and 53 seconds for that one file, which from outside is a hang.
 5. Local `$ref`s into `components.schemas.*` are resolved, and **narrowing keywords written beside a
-   `$ref` apply** — `enum`, `format`, `pattern`, the bounds, `example`, `default` — since OpenAPI 3.1
+   `$ref` apply** — `enum`, `format`, `pattern`, the bounds, `example`/`examples`, `default` — since OpenAPI 3.1
    permits them and they are how a spec restricts one use of a shared type. **Structural** siblings
-   (`type`, `properties`, `items`) are deliberately ignored: sibling keywords were illegal beside
+   (`type`, `properties`, `items`, `required`, `nullable`, `allOf`/`oneOf`/`anyOf`) are deliberately ignored: sibling keywords were illegal beside
    `$ref` before 3.1, so Swagger-2 conversions are full of leftovers the tools of that era ignored,
-   and acting on them makes correct bodies wrong. A **cyclic** `$ref` terminates with the
+   and acting on them makes correct bodies wrong. `gen-fixtures` inlines a `$ref` by this same rule,
+   so both halves of crust read one referring node the same way — the britbox and digitalocean numbers
+   are in the gen-fixtures page. A **cyclic** `$ref` terminates with the
 properties its schema REQUIRES and nothing else. Dropping the optional ones is what makes it finite,
 since the property that closes the loop is nearly always optional — a slot may contain a sub-slot.
 A required property that closes the loop gets the empty shape of the type it declares. A required
