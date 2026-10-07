@@ -98,7 +98,7 @@ The shell parser classifies each `|`-separated stage by looking at its first tok
 |---|---|
 | Contains `*` / `?` / `[…]` | Glob source |
 | Matches `range(a, b)` | Range source |
-| Starts with `{` or `[` | JSON-literal source (invalid JSON = hard error, never shell) |
+| Starts with `{` or `[` **and is JSON-shaped** | JSON-literal source (a half-typed literal = hard error, never shell). Bracket-headed *shell* — `{ echo a; echo b; } \| cat`, `[ -f f ] && echo ok` — is a shell stage |
 | Starts with `read <path\|glob>` | Whole-file source — one item per file |
 | Starts with `(` and contains `=>` | TypeScript lambda |
 | Starts with `assert (` | Assert stage — falsy or empty upstream fails the pipeline |
@@ -107,6 +107,11 @@ The shell parser classifies each `|`-separated stage by looking at its first tok
 | First token is a builtin name | Builtin (in-process dispatch) |
 | First token is a `crust.fn`-registered function | Registered function (per-item transform) |
 | Anything else | Shell stage — handed to `sh -c "<text>"` |
+
+A literal is claimed only when the text **is** JSON, or still looks like someone
+typing one (a quote or a colon, no shell operator). So the shell idioms that
+begin with a bracket keep their shell meaning in any position: `{ echo a; echo b; } | cat`
+groups, `[ -f dist/index.html ] && echo built` tests.
 
 Single-stage pure-shell lines (`ls -la`, `git status`) short-circuit: crust execs `sh -c` with **inherited stdio** so colors, paging, and TUIs work normally. Mixed pipelines stream items through TS land.
 

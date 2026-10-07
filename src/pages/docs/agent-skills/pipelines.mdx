@@ -4,7 +4,7 @@ title: crust-pipelines
 description: The foundation skill — how crust classifies a stage from its first token, where $VAR expands, request chaining with capture, and the traps agents fall into (a bare lambda MAPS, it never filters).
 ---
 
-**`crust-pipelines`** teaches an agent the grammar itself: how to pick a source, compose stages, chain requests, and — most valuably — which mistakes look correct but aren't. The other four skills assume it.
+**`crust-pipelines`** teaches an agent the grammar itself: how to pick a source, compose stages, chain requests, and — most valuably — which mistakes look correct but aren't. The other eight skills assume it.
 
 Install it with the rest:
 
@@ -95,6 +95,7 @@ These are the ones worth internalising even if you never use an agent.
 - **A glob yields paths; `read <glob>` yields contents.** `POST`ing a bare glob posts path strings.
 - **Builtins cannot be piped** — a `test-pipes` or `mock-server` line must contain no `|`.
 - **Native grep patterns are JS regexes.** Quoted `'a|b'` alternates where BRE grep matched the literal; use `grep -F` for the literal.
+- **A `{` or `[` head is JSON only if it reads like JSON.** `{ echo a; echo b; } | cat` groups and `[ -f users.csv ] && echo there` tests, in any position; a half-typed body (`{"a": }`) stays a JSON error rather than exec'ing as a command.
 - In `… | expect 200 | stats`, a failing `expect` throws at drain **before** `stats` emits. Gate inside a stats assert if you need the summary.
 
 ## Exit codes

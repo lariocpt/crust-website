@@ -37,10 +37,10 @@ crust-verify-web-links
 
 ## The nine skills
 
-Five have their own page with usage directions, worked examples and the reasoning
-behind them. The last four ship in the binary too, but are only listed here — by
-the metadata `skills list` prints, with the closest recipe linked — until their
-pages exist. `skills install <name>` works for all of them either way.
+All nine have a page: usage directions, worked examples, and the reasoning
+behind them. `skills install <name>` writes the same skill into
+`./.claude/skills/` for a coding agent to read; the pages are for the human
+deciding which one that should be.
 
 | Skill | Teaches the agent to… | Leans on |
 |---|---|---|
@@ -49,10 +49,10 @@ pages exist. `skills install <name>` works for all of them either way.
 | **[crust-load-testing](/docs/agent-skills/load-testing/)** | Shape `load` scenarios and ramps, size `parallel` pools, read drop reports, and wire `stats`/`assert` threshold gates with baselines into CI. | [Stress testing](/docs/recipes/stress-testing/), [CI load gates](/docs/recipes/ci-load-gates/) |
 | **[crust-mock-server](/docs/agent-skills/mock-server/)** | Boot spec mocks, use stateful CRUD for round-trip flows, interpret `--validate` 422s, and run conformance audits with `--proxy`. | [Mock server](/docs/recipes/mock-server/) |
 | **[crust-procs](/docs/agent-skills/procs/)** | Orchestrate processes with `ready:`/`after:`/`restart:`, tail merged logs, and gate CI on `wait`. | [One dev tail](/docs/recipes/dev-tail/) |
-| **crust-cli** | Drive crust from CI and scripts: which run mode takes which argument, what the exit codes actually mean (`0`/`1`/`2`/`127`, and why there is no `124`), what `--check` validates without executing, and what a global install, `discover`, and the REPL keybindings do. | [CI load gates](/docs/recipes/ci-load-gates/) |
-| **crust-builtins** | Tell the two namespaces apart — tool builtins that need a line of their own vs registered functions usable as a stage — and get the argument convention right: what the upstream item means to each one, why `bundle(5)` is a shell syntax error, how to reach crypto from a lambda. | [Quickstart](/docs/quickstart/) |
-| **crust-logs** | Mine logs as a stream: `logs` vs the shell's `grep`, structured NDJSON parsing, `stats --by-field`, `bundle` windows for stack traces, rotation-safe follow, and the three-stage recipe for a trace id crossing services. | [Log mining](/docs/recipes/log-mining/) |
-| **crust-verify-web-links** | Crawl a site or sitemap for broken links, anchors, redirect chains and OG/meta drift, write `.meta.crust.ts` fixtures, and gate a deploy preview — including what `--base-url` rewrites and when to use `mock-server` with it. | [Verify web links](/docs/recipes/verify-web-links/) |
+| **[crust-cli](/docs/agent-skills/cli/)** | Drive crust from CI and scripts: which run mode takes which argument, what each exit code actually means (`0` · `1` · `2` · the stage's own · `127` · `130`, and why there is no `124`), what `--check` validates without executing *and what it cannot see*, env files vs `dotenv`, and the REPL's real keybindings. | [CI load gates](/docs/recipes/ci-load-gates/), [Quickstart](/docs/quickstart/) |
+| **[crust-builtins](/docs/agent-skills/builtins/)** | Tell the two namespaces apart — tool builtins that need a line of their own vs registered functions used as stages — and get `fn(item, ...args)` right: what the item means per function, why `bundle(5)` is a shell syntax error, why a lambda says `salt is not defined`, and how to reach crypto and FS from one. | [Quickstart](/docs/quickstart/) |
+| **[crust-logs](/docs/agent-skills/logs/)** | Run the `logs` session: one held source behind a ring buffer, every typed fragment run over the buffered past and *then* live (so side effects fire twice), `json on` for NDJSON and the silent zero it prevents, `search` and `buffer N`, and which item type each source yields. | [Log mining](/docs/recipes/log-mining/), [One dev tail](/docs/recipes/dev-tail/) |
+| **[crust-verify-web-links](/docs/agent-skills/verify-web-links/)** | Crawl a sitemap and check links, `#anchors`, redirect chains and OG images, plus meta against `.meta.crust.ts` fixtures: sitemap auto-discovery, `--site-map-url` against local build output, and the three ways a green run means nothing was checked. | [Verify web links](/docs/recipes/verify-web-links/) |
 
 ## Install
 
