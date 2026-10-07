@@ -89,7 +89,7 @@ sh -c 'set -o pipefail; ls /nope | wc -l'   # 2 — would be 0 without pipefail
 spawned, no requests made. Exit **0** if every line parses, **1** with the error
 otherwise, printing `ok: N line(s) parse`. It splits on newlines and skips blank
 and `#` lines, so a whole fenced block goes in as one argument — which is how
-this site's 304 examples and crust's own docs are validated in CI.
+this site's 339 examples and crust's own docs are validated in CI.
 
 It checks three things: crust's grammar, a builtin-head line against **that
 CLI's flag spec**, and every shell stage through `sh -n` — noexec, so `cat > f`
@@ -105,6 +105,15 @@ or a live process. Not a missing fixture, not an unreachable URL, not a wrong
 `output` matcher key, not a semantic refusal at runtime (which is why
 `--env-file` and `--check` refuse to combine). **"Checks clean" means
 *parses*, never *will pass*.**
+
+One more edge, for a CI that lints a docs file: `$VAR` is expanded from the
+**real environment** while the line is built, so a check proves the line parses
+*for that environment*. An unset variable inside a JSON literal makes the
+literal malformed before anything runs — `--check '{"n":$N}'` is a JSON parse
+error with `N` unset and `ok` with `N=7` — while a URL, a header value or a
+`read` path is never parsed as JSON and checks clean whatever the variable
+holds. Lint docs lines with the environment the docs claim, or keep variables
+out of the literals you expect a stranger to check.
 
 When it does fail it names the stage, because "syntax error" on a line with
 eight stages sends you to the wrong half of it:
