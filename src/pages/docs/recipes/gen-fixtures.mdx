@@ -132,6 +132,20 @@ The rules that keep the matrix sane:
   `type: "object"` alongside a `oneOf`/`anyOf` used to produce `{}` — the explicit type sent it
   straight to the object case, which composes through `allOf` only. The same node *without* a type
   worked, which is what kept it hidden.
+- **The mirror shape too.** The node declares its `properties` once and each branch says only *which
+  of them* this form needs — urlbox's `RenderRequest` is
+  `{oneOf: [{required: ["url"]}, {required: ["html"]}], properties: {url, html, format, …}}`, which is
+  how a two-form POST gets written. A branch was read only when the node owned nothing at all, so that
+  one composed to `{}`: the base body satisfied no branch, crust's own validator answered `anyOf`, and
+  every negative case of the operation went behind a notice blaming crust's value — urlbox generated
+  no cases from its entire spec. Now a branch is read when the composed view **cannot satisfy one**. A
+  branch requiring nothing is satisfied by any object, and a branch the node's own `required` already
+  satisfies is *not* read: on a `oneOf`, adding the other alternative makes the body match two
+  branches and break the very thing being composed for. Across the 23 corpus specs that write it, the
+  notices blaming crust's body went **23 → 0** and the operations left with **no negative cases at
+  all** went **21 → 0**, cases rose 5,888 → 5,996 and no spec lost one; the 52 union-body specs that
+  write some other shape gained 109 cases between them and lost no test, which is the control that
+  whatsapp's `audio`/`image` body still composes exactly as before.
 - `exclusiveMinimum`/`exclusiveMaximum` are honoured in **both spellings** — 3.0's boolean modifier
   on `minimum`/`maximum`, and 3.1's number — so `{maximum: 1, exclusiveMaximum: true}` is never
   answered with `1`, the one value it excludes. Where a `format` and a `pattern` are both declared,
