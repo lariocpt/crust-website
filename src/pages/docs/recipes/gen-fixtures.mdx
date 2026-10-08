@@ -242,6 +242,21 @@ Two practical notes from running these against real servers:
 - **Local `$ref`s are inlined; remote ones are not.** A body written as `$ref: "#/components/schemas/Req"` is resolved and gets its full 400 matrix — checked against the published binary, which returned `missing required 'profileToken'`, `wrong type for 'profileToken'` and `unexpected extra property` for exactly that shape. A body written as `$ref: "./common.yaml#/components/schemas/Req"` is not: crust never fetches anything at generation time, so that operation gets no base body and no 400/boundary cases, only the auth/404 ones, and nothing is printed about it. Bundle or inline external refs (`$ref: "./…"` or `$ref: "https://…"`) before feeding a spec in.
 - **Validate before you look up.** The PATCH/PUT boundary cases hit a *random uuid* with an invalid body and expect `400`. A handler that checks existence first will 404 and fail the case. Spec-conformant servers validate the body before touching storage — the generated matrix enforces that ordering.
 
+### Swagger 2.0: the body is a parameter
+
+Swagger 2.0 has no `requestBody`. An operation's body is a parameter with `in: body`, and the converter used to drop it — so a 2.0 document could get **no 400 matrix at all**, however carefully it documented its 400s, and the hint it printed ("the 400 matrix needs a JSON request-body schema plus a documented 400") was precisely true and completely useless, because the spec had one in the other dialect. `aiception.com` emitted 5 cases; `adafruit.com` emitted 68 and not one of them about a body.
+
+Measured over the APIs-guru corpus with references resolved: **1,528 specs and 10,870 operations** declare their bodies this way — 10,083 on the operation, 775 through `$ref: #/parameters/…`, 12 on the path item. A third of the corpus, every one Swagger 2.0. My first two scans said 1,443 and 10,083: they matched `in == "body"` and so never saw a body arriving by `$ref`. The control caught it — a "body-less" control spec whose generated tree changed.
+
+The conversion now moves the parameter where both halves of crust read it, once, in `swagger2to3`. Across that population: cases **1,818 → 3,711**, qualifying collections **0 → 68** (a 2.0 spec had never produced a CRUD flow), 38 specs off absolute zero, **no spec losing a case**, and no new drop notice blaming crust. The control is 120 Swagger-2 specs with no body parameter: **0 of 120** differ in their generated tree — hashed, not counted.
+
+Two edges worth knowing, both of them controls in the suite:
+
+- `consumes` picks the media type, operation-level first, JSON preferred, and a declared non-JSON type is **carried as declared**. `in: formData` is not converted at all, because it becomes a form body and crust does not validate non-JSON request bodies — a case built from one would assert a 400 that [the mock](/docs/recipes/mock-server/) never returns. The control says exactly that: a non-JSON `consumes` generates nothing, precisely as the mock validates nothing.
+- A body declared on `GET` or `HEAD` stays a parameter (9 corpus specs do it, 12 of them `required`: azure botservice/mariadb/mysql, hetras, n-auth, ticketmaster, illumidesk). A generated fixture fetches, and `fetch` refuses a body on those two methods outright, so the case would *error* rather than fail.
+
+One consequence to expect when you regenerate: the 401/403/404 cases of a 2.0 operation now send the body the spec declares instead of nothing, since a route may validate the body before it checks who is calling. Those cases carry a schema-valid body for exactly that reason.
+
 ## Generated CRUD flows
 
 Unless you pass `--no-flows`, qualifying collection paths also get a flow suite: `--out/flows/flows.gen.pipes` plus a sibling `flows.gen.setup.ts` that `test-pipes` auto-detects — zero extra flags to run. Here's a generated file, line by line:

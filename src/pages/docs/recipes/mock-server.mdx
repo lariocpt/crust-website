@@ -436,6 +436,16 @@ The governing rule: **a schema the walker can't judge validates successfully.** 
 
 `--validate` composes with `--stateful`: an invalid POST answers `422` and **creates nothing** — which is exactly what makes the combination a good stand-in backend for frontend form work. (The mock's `422` is deliberately distinct from your real server's documented `400` contract — [generated negative fixtures](/docs/recipes/gen-fixtures/) still belong against the real thing.)
 
+### A Swagger 2.0 body is a parameter, and it is validated
+
+2.0 has no `requestBody`: the body of an operation is a parameter with `in: body`, and the conversion used to drop that parameter — so `--validate` on a 2.0 document had no body to validate at all. What that looked like, measured against a schema requiring `name`: `POST /widgets` with `{"size":"nope"}` was answered with the documented `201`, and so were `"a string"` and `{}`. Now it answers `422` carrying `missing required property 'name'` and `expected integer, got string`, while a valid body still gets its `201` and its synthesised response.
+
+That is **1,528 specs and 10,870 operations** of the APIs-guru corpus — a third of it, every one Swagger 2.0: 10,083 declare the parameter on the operation, 775 reach it through `$ref: #/parameters/…`, 12 declare it once on the path item. The media type comes from `consumes`, operation-level first and JSON preferred; a declared non-JSON type is carried as declared, so a form body stays a form body and is still not validated (the governing rule above).
+
+`GET` and `HEAD` are the exception, and deliberately so: 9 corpus specs declare a body there, 12 of them `required` (azure botservice/mariadb/mysql, hetras, n-auth, ticketmaster, illumidesk). No client can send one — `fetch` refuses outright — so answering those requests `422 request body is required but absent` would be inventing a violation of a request nobody can make. Those parameters stay exactly where they were, and the mock answers the documented status.
+
+End to end, on a real 2.0 spec (`aiception.com`) rather than a repro: the 12 requests its new negative cases make were answered **201 by the old converter and 422 by this one, 12 of 12 both ways**, and the schema-valid body for the same five operations is still accepted — a fix that rejected everything would score perfectly on the first half.
+
 ## Validation proxy — `--proxy <upstream>`
 
 The proxy flips the question. The mock asks "does my client speak the spec?"; the proxy asks "**does my real backend speak the spec?**" — while your existing tests provide the traffic:
