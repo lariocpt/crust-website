@@ -253,7 +253,15 @@ The conversion now moves the parameter where both halves of crust read it, once,
 Two edges worth knowing, both of them controls in the suite:
 
 - `consumes` picks the media type, operation-level first, JSON preferred, and a declared non-JSON type is **carried as declared**. `in: formData` is not converted at all, because it becomes a form body and crust does not validate non-JSON request bodies — a case built from one would assert a 400 that [the mock](/docs/recipes/mock-server/) never returns. The control says exactly that: a non-JSON `consumes` generates nothing, precisely as the mock validates nothing.
-- A body declared on `GET` or `HEAD` stays a parameter (9 corpus specs do it, 12 of them `required`: azure botservice/mariadb/mysql, hetras, n-auth, ticketmaster, illumidesk). A generated fixture fetches, and `fetch` refuses a body on those two methods outright, so the case would *error* rather than fail.
+- A body declared on `GET` or `HEAD` stays a parameter in Swagger 2.0, and is treated as absent in 3.x (20 corpus specs / **270 `GET` operations** declare one natively; 9 more do it as a 2.0 parameter: azure botservice/mariadb/mysql, hetras, n-auth, ticketmaster, illumidesk). A generated fixture fetches, and `fetch` refuses a body on those two methods outright — `fetch() request with GET/HEAD/OPTIONS method cannot have body.` — so the case would *error* rather than fail. Bun discards a `GET` body even when a raw client sends one, so there is no request crust could emit that any API would see. The operation's other cases survive without the body; only the 400 matrix is not derived, and it is disclosed:
+
+  ```text
+  gen-fixtures: 1 operation(s) document a request body on GET or HEAD — crust sends no body with
+  those methods (fetch refuses the request), so their 400 matrix is not generated; 1 of them now
+  have no negative cases at all
+  ```
+
+  Across those 29 specs, `GET` cases carrying a body went **15 → 0** and 408 of 414 remain — what crust *can* send on a `GET` it still sends, and the 6 that went could never have run. Those operations count toward the `note: N operation(s) left with no negative cases` aggregate (261 of 270 there), because a silently smaller suite is the failure mode this project ranks worst. Control: 120 specs with a body on POST/PUT/PATCH and none on `GET`/`HEAD` — **0 of 120** generated trees differ, hashed rather than counted.
 
 One consequence to expect when you regenerate: the 401/403/404 cases of a 2.0 operation now send the body the spec declares instead of nothing, since a route may validate the body before it checks who is calling. Those cases carry a schema-valid body for exactly that reason.
 
