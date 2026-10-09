@@ -40,7 +40,7 @@ missing binary.
 |---|---|---|
 | `0` | Success. | `range(1,2)` |
 | `1` | **crust** failed — every error crust itself raises. | `assert` mismatch, a lambda that throws, `expect 200` against a 500, `wait: <target> not ready after Ns`, a `GET` that can't connect, `read` on a missing file, a refused empty stage, a builtin name that reached sh. |
-| `2` | Invocation or syntax error — nothing ran. | `crust --nonsense`, `--check` with no line, `--env-file` on a missing file, `crust x.crust extra`, `mock-server --bogus` (which prints the valid flags), and sh's own parse errors on a pure-shell line (`bundle(5)`). |
+| `2` | Invocation or syntax error — nothing ran. | `crust --nonsense`, `--check` with no line, `--env-file` on a missing file, `crust x.crust extra`, `mock-server --bogus` (which prints the valid flags), sh's own parse errors on a pure-shell line (`bundle(5)`) — and, as of PR #60, the same parse error on any shell stage of a **mixed** line (named, and nothing ran; a bad stage N used to surface only when its child exited, after stages 1..N-1 had run). |
 | *the stage's own* | A shell stage's exit code, propagated. | `range(1,3) \| sh -c "exit 9"` → `9` |
 | `127` | Command not found in a shell stage, or an unreadable script file. | `nosuchbinary-xyz` |
 | `130` / `143` | crust killed by SIGINT / SIGTERM. | Ctrl-C during a long `-c` run |
@@ -127,6 +127,15 @@ The `sh:` line after that is whatever your `/bin/sh` says, in its own words and
 its own capitalisation — bash calls it `syntax error near unexpected token '('`,
 dash (what CI usually has) says `Syntax error: word unexpected (expecting ")")`.
 crust passes it through unchanged, so grep for `shell stage does not parse`.
+
+The runtime runs the same preflight before executing any stage of a **mixed**
+line (as of PR #60; in 0.2.4 only `--check` has it): a shell stage whose text
+does not parse exits 2 with the message above, and nothing has run. Measured
+pre-fix, `touch f | base64 | head -(` exited 2 and `f` existed — the error was
+in stage 3, and stage 1 ran first. A pure-shell line is one `sh -c`, which sh
+parses the whole line for before executing anything, so its own stderr stays
+the answer there — and 127 (command not found) is a runtime error the preflight
+cannot see.
 
 ## Environment
 

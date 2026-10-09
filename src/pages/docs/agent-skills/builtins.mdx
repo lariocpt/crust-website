@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: crust-builtins
-description: crust has two namespaces — tool builtins (mock-server, test-fixture, verify-web-links, logs, dotenv) that need a line of their own, and registered functions (base64, salt, jwt, bundle, sql, wait) that are space-separated stages. What the upstream item means to each one, why bundle(5) is a shell syntax error, and how to reach crypto/FS from a lambda.
+description: crust has two namespaces — tool builtins (mock-server, test-fixture, verify-web-links, logs, dotenv) that need a line of their own, and registered functions (base64, salt, jwt, bundle, sql, wait) that are space-separated stages. What the upstream item means to each one, why bundle(5) is a shell syntax error, how to reach crypto/FS from a lambda, and that -h/--help answers with a usage screen without running anything.
 ---
 
 **`crust-builtins`** answers the question every newcomer gets wrong in the
@@ -61,6 +61,26 @@ the query's first parameter, it never *becomes* the query. `wait` failing to
 become ready exits **1**, measured for `:PORT`, `:PORT/path` and `port:PORT`
 and for an expiring `--timeout` — see [crust-cli](/docs/agent-skills/cli/) for
 why there is no `124`.
+
+## `-h`/`--help` answers at parse time
+
+Each of the six functions answers `-h`/`--help` with its own usage screen and
+exit 0 — **before any stage runs**, so an upstream stage with side effects
+never runs: `… | sql --help` prints usage without making the request, and the
+`touch` upstream of it never happens (measured). The scan stops at `--`, so
+`base64 -- --help` encodes the flag, and a value that arrives through the pipe
+is data, never an option (`printf '%s' --help | base64` encodes it). A
+`crust.fn` override of the name keeps its handler's own argument handling —
+`--help` is just another argument to it.
+
+```text
+base64 --help
+  → usage: base64 [text] [-d|--decode] [-f|--file <path>] [-o|--out <path>]
+    exit 0 — nothing ran
+```
+
+That is the PR #60 change. In 0.2.4 the flag is ordinary data — `base64
+--help` prints `LS1oZWxw`.
 
 ## A lambda cannot call them
 
