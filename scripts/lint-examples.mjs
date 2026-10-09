@@ -70,8 +70,25 @@ for (const root of ROOTS) {
         if (open.q || open.depth > 0) continue;
         const line = buf.trim();
         buf = "";
-        if (line) examples.push({ file, line });
+        // A synopsis is documentation shape, not a command: `cd <dir>`,
+        // `test-fixture <glob> [-j N]`. `<word>` and `[-flag]` are unambiguous
+        // placeholder syntax and neither appears in a real crust line. Same rule
+        // as crust's own tests/docs-lint.test.ts — both linters must accept and
+        // reject the same text, or the two repos drift. This became visible
+        // when `--check` started parsing shell stages with `sh -n`: `cd <dir>`
+        // is a redirect to nothing, so a synopsis line that had always been
+        // "opaque shell" began failing here and nowhere else.
+        if (line && !/<[a-z][a-z|_-]*>|\[-{1,2}[a-z]/i.test(line)) examples.push({ file, line });
       }
+      // A buffer left open at the end of the fence is NOT a formatting quirk to
+      // forgive: it is an example whose brackets never close, which is exactly
+      // the truncation a reader would paste and crust would reject. Dropping it
+      // silently was demonstrated to hide a broken example — `range(1,` in a
+      // fresh fence linted as "0 failed" and was not even counted. So hand it
+      // to crust like any other example and let it fail where it belongs.
+      if (buf.trim()) examples.push({ file, line: buf.trim() });
+      open.q = null;
+      open.depth = 0;
     }
   }
 }

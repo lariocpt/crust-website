@@ -96,9 +96,9 @@ The shell parser classifies each `|`-separated stage by looking at its first tok
 
 | Trigger | Stage kind |
 |---|---|
-| Contains `*` / `?` / `[…]` | Glob source |
+| Contains `*` / `?` / `[…]` — a tight bracket that is not a literal attempt | Glob source |
 | Matches `range(a, b)` | Range source |
-| Starts with `{` or `[` | JSON-literal source (invalid JSON = hard error, never shell) |
+| Starts with `{` or `[`, and parses or is tight JSON-shaped text (`{"n":$N}`, `[1,$N]`) | JSON-literal source (a half-typed literal = hard error, never shell). The *spaced* shell shapes — `{ echo a; echo b; } \| cat`, `[ -f f ] && echo ok` — are shell stages |
 | Starts with `read <path\|glob>` | Whole-file source — one item per file |
 | Starts with `(` and contains `=>` | TypeScript lambda |
 | Starts with `assert (` | Assert stage — falsy or empty upstream fails the pipeline |
@@ -107,6 +107,15 @@ The shell parser classifies each `|`-separated stage by looking at its first tok
 | First token is a builtin name | Builtin (in-process dispatch) |
 | First token is a `crust.fn`-registered function | Registered function (per-item transform) |
 | Anything else | Shell stage — handed to `sh -c "<text>"` |
+
+A literal is claimed when the text **parses** — whatever it contains, so
+`{"cmd": "a && b"}` is one — or when tight text still looks like someone typing
+one: a quote, colon, comma, or a `$` inside the brackets (`{"n":$N}`, `[1,$N]`).
+The shell's own bracket shapes are always *spaced*, so those idioms keep their
+shell meaning in any position: `{ echo a; echo b; } | cat` groups,
+`[ -f dist/index.html ] && echo built` tests, and `[abc]*` stays a glob. And
+since a spaced head is shell, write arrays tight — `[1,$N]` is the array,
+`[ $N ]` is a file test.
 
 Single-stage pure-shell lines (`ls -la`, `git status`) short-circuit: crust execs `sh -c` with **inherited stdio** so colors, paging, and TUIs work normally. Mixed pipelines stream items through TS land.
 
@@ -145,30 +154,25 @@ reach for when the line involves streams, HTTP, fixtures, or load:
   crust deploy-checks.crust
   echo 'range(1,3) | filter (n => n > 1)' | crust
 
-  # 4. crust globals available to any .ts file you run with bun
-  bun script.ts
+  # 4. Your own .ts modules — crust's globals are live inside anything crust loads
+  crust -c 'source lib/checks.ts'
   ```
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // script.ts — runs under plain `bun script.ts`.
-  // The Pipeline / range / parallel / GET / POST / expectStage / stats
-  // / $ globals come from `crust` — explicit import keeps tooling happy.
-  import { Pipeline, range, parallel, GET, expectStage } from "crust";
-  import { stats } from "crust/sinks";
-
+  // checks.ts, loaded by crust (`crust -c 'source lib/checks.ts'`, or from a
+  // .crust script) — every name below is already on globalThis, no imports.
   await range(0, 99)
     .pipe(parallel(20, () => fetch("http://localhost:3000/health")))
     .pipe(expectStage(200))
-    .to(stats());
-
-  // Or with no imports inside the crust REPL — every name above
-  // is already on globalThis.
+    .pipe(statsStage());
   ```
   </Fragment>
 </CodeSwitcher>
 
 The TypeScript surface is identical between the REPL and a script — the difference is just *where* you're typing. There is no feature that exists in the shell line but not in TS, or vice versa.
+
+One caveat about *how* TypeScript gets those names: crust installs them as globals wherever **crust** starts its runtime — `-c`, the REPL, stdin, `.crust` files, `~/.config/crust/init.ts`, and any `.ts`/`.js` file crust loads. A file run by plain `bun script.ts` never starts crust, so it gets none of them and must import what it needs (`range`, `parallel`, `GET`, `expect`, `statsStage` live in `src/sources.ts`, `src/transforms.ts`, `src/pipeline.ts`). The `from "crust/…"` paths the other pages show are the published shape; until the library is on npm, the in-repo paths are `../src/…`.
 
 ## Next
 

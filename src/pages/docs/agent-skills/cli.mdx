@@ -1,0 +1,236 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-cli
+description: How to invoke crust and how to read what it answers — the four run modes, what each exit code actually means (0/1/2/127/130, and why there is no 124), --check as a linter including what it cannot catch, env files, and the REPL's real keybindings.
+---
+
+**`crust-cli`** is the skill for the two questions CI always asks: *did that
+line run*, and *why did it say that number*. Everything here was measured
+against the binary, not inferred from its source.
+
+## Run modes
+
+| Invocation | What happens |
+|---|---|
+| `crust` (stdin is a TTY) | Interactive REPL. |
+| `crust` (stdin is piped) | Reads **lines of crust** from stdin to EOF and runs them like a script — fail-fast, same exit codes. stdin is the *command* source here, so a shell stage inside those lines sees EOF. Want data on stdin? Use `-c`. |
+| `crust run.crust` | Script mode: blank lines and `#` comments are skipped (so a `#!/usr/bin/env crust` shebang works), lines run in order, and the **first failing line stops the file** and becomes the process exit code. A line ending in `\` continues on the next. The extension doesn't matter. |
+| `crust -c '<line>'` | One line. A shell stage inherits the process stdin, so `docker logs app \| crust -c 'grep ERROR'` really does grep the logs. To feed a **crust** pipeline, name the source: `docker logs -f app \| crust -c 'stdin \| grep ERROR'`. |
+| `crust --check '<line>'` | Parse without running. [Below](#check-the-linter-and-its-edges). |
+| `crust --env-file <path> …` | Loads `.env` before *any* run mode and before `init.ts`. |
+| `crust -h` / `-V` | Usage / version, exit 0. |
+
+Three argument mistakes are refused with exit 2 rather than guessed at, because
+a silently-dropped argument is how a green CI step runs the wrong test:
+positional arguments **after a script path** (`crust x.crust extra`), `-c` given
+two lines as two arguments, and an unquoted pipeline — `-c range(1,2) extra`
+splits into three `argv` words. Several lines in one `-c` are fine: put a
+**newline inside the one argument** and they behave like a script.
+
+That is also the rule a copied example depends on. Every bare tool name in a
+` ```bash ` block on this site — `mock-server ./openapi.json -p4000`,
+`skills list` — is a **crust line**, so it runs at the REPL or as
+`crust -c '<line>'`. Run as `crust mock-server …` it is a *script path with
+arguments*: exit 2, and a lone name exits **127**, which looks exactly like a
+missing binary.
+
+## Exit codes
+
+| Code | Meaning | Examples |
+|---|---|---|
+| `0` | Success. | `range(1,2)` |
+| `1` | **crust** failed — every error crust itself raises. | `assert` mismatch, a lambda that throws, `expect 200` against a 500, `wait: <target> not ready after Ns`, a `GET` that can't connect, `read` on a missing file, a refused empty stage, a builtin name that reached sh. |
+| `2` | Invocation or syntax error — nothing ran. | `crust --nonsense`, `--check` with no line, `--env-file` on a missing file, `crust x.crust extra`, `mock-server --bogus` (which prints the valid flags), sh's own parse errors on a pure-shell line (`bundle(5)`) — and, as of PR #60, the same parse error on any shell stage of a **mixed** line (named, and nothing ran; a bad stage N used to surface only when its child exited, after stages 1..N-1 had run). |
+| *the stage's own* | A shell stage's exit code, propagated. | `range(1,3) \| sh -c "exit 9"` → `9` |
+| `127` | Command not found in a shell stage, or an unreadable script file. | `nosuchbinary-xyz` |
+| `130` / `143` | crust killed by SIGINT / SIGTERM. | Ctrl-C during a long `-c` run |
+
+**There is no crust exit `124`.** `wait` on a target that never answers exits
+**1** with `crust: wait: <target> not ready after Ns`. A `124` in your logs is
+`timeout(1)` — your harness — killing crust, so give `wait`, `load` and `procs`
+probes a generous outer timeout. The same caution is why nobody should trust
+`$?` read after a pipe: `| head` masks both the code and the error text.
+
+One refusal costs people hours and is not a bug: a **bare `wait :3000` probes
+`/`**, and readiness means a **2xx**. A mock server or an API with no root route
+answers 404 forever, so the line fails after the full timeout against a server
+that is perfectly up. Ask for a health path (`wait :3000/health`) or a TCP
+connect (`wait port:3000`) — and crust now says which probe it ran.
+
+### The last command wins
+
+This is the trap that turns a CI step green on a failure. A line made
+**entirely of shell stages** is handed to sh as one `sh -c` string, so its code
+is the **last** command's — there is no `pipefail`:
+
+```bash
+ls /nope | wc -l      # 0 — wc succeeded
+ls /nope              # 2
+```
+
+The moment a line contains a crust stage, crust owns the exit code and a failing
+shell stage propagates. So a gate must **end on a crust stage**:
+
+```crust
+wait :3000/health
+range(1,99) | parallel 10 | GET http://localhost:3000/items | expect 200 | stats
+GET http://localhost:3000/items | assert (x => x.length > 0)
+```
+
+Or ask sh to gate, explicitly:
+
+```bash
+sh -c 'set -o pipefail; ls /nope | wc -l'   # 2 — would be 0 without pipefail
+```
+
+## `--check`: the linter, and its edges
+
+`crust --check '<line>'` parses and runs nothing: no files opened, no processes
+spawned, no requests made. Exit **0** if every line parses, **1** with the error
+otherwise, printing `ok: N line(s) parse`. It splits on newlines and skips blank
+and `#` lines, so a whole fenced block goes in as one argument — which is how
+this site's 339 examples and crust's own docs are validated in CI.
+
+It checks three things: crust's grammar, a builtin-head line against **that
+CLI's flag spec**, and every shell stage through `sh -n` — noexec, so `cat > f`
+under `-n` does not create `f`.
+
+```crust
+read /nonexistent/*.json | POST :3000/x
+```
+
+That one checks clean, on purpose: sources are lazy, so a missing path is not a
+parse error. Which is the whole edge — `--check` cannot see anything needing I/O
+or a live process. Not a missing fixture, not an unreachable URL, not a wrong
+`output` matcher key, not a semantic refusal at runtime (which is why
+`--env-file` and `--check` refuse to combine). **"Checks clean" means
+*parses*, never *will pass*.**
+
+One more edge, for a CI that lints a docs file: `$VAR` is expanded from the
+**real environment** while the line is built, so a check proves the line parses
+*for that environment*. An unset variable inside a JSON literal makes the
+literal malformed before anything runs — `--check '{"n":$N}'` is a JSON parse
+error with `N` unset and `ok` with `N=7` — while a URL, a header value or a
+`read` path is never parsed as JSON and checks clean whatever the variable
+holds. Lint docs lines with the environment the docs claim, or keep variables
+out of the literals you expect a stranger to check.
+
+When it does fail it names the stage, because "syntax error" on a line with
+eight stages sends you to the wrong half of it:
+
+```text
+crust: shell stage does not parse (stage: head -()
+  in: range(1,3) | head -(
+```
+
+The `sh:` line after that is whatever your `/bin/sh` says, in its own words and
+its own capitalisation — bash calls it `syntax error near unexpected token '('`,
+dash (what CI usually has) says `Syntax error: word unexpected (expecting ")")`.
+crust passes it through unchanged, so grep for `shell stage does not parse`.
+
+The runtime runs the same preflight before executing any stage of a **mixed**
+line (as of PR #60; in 0.2.4 only `--check` has it): a shell stage whose text
+does not parse exits 2 with the message above, and nothing has run. Measured
+pre-fix, `touch f | base64 | head -(` exited 2 and `f` existed — the error was
+in stage 3, and stage 1 ran first. A pure-shell line is one `sh -c`, which sh
+parses the whole line for before executing anything, so its own stderr stays
+the answer there — and 127 (command not found) is a runtime error the preflight
+cannot see.
+
+## Environment
+
+| How | Scope | Reaches sh stages? |
+|---|---|---|
+| `crust --env-file <path> …` | one process, loaded before `init.ts` | yes |
+| `dotenv <path>` / `dotenv --append` / `dotenv status` / `dotenv clear` | the session | yes |
+| `export FOO=bar` | the session | yes |
+| `capture NAME` stage | writes `process.env.NAME` from the stream, for **later lines** | yes |
+
+`--env-file` is loud about what it could not do: a missing file exits **2**, and
+the "loaded" note goes to stderr so a `-c` pipeline's stdout stays parseable. It
+exists to replace shell shims that failed silently.
+
+## The REPL
+
+Verified in a real pty rather than read off the source, because two of the
+obvious guesses were wrong.
+
+- **Editing:** `Ctrl-A` / `Ctrl-E` home and end, arrow keys move (as do `Home`,
+  `End`, `Delete`), `Ctrl-K` kill to end, `Ctrl-U` kill to start, `Ctrl-W` kill
+  previous word, `Ctrl-L` repaint — the buffer survives it. `Ctrl-B` and
+  `Ctrl-F` are **not** bound.
+- **Tab** completes a **path** mid-stage (`ls sr` + Tab → `ls src/`) and lists
+  names from `$PATH` at the start of a stage. It does **not** know crust's own
+  builtins: `verify-web-` + Tab offers `/usr/bin` candidates and nothing useful.
+- **History** is up/down arrows, plain text at `$XDG_DATA_HOME/crust/history`
+  (default `~/.local/share/crust/history`), surviving restarts; `history` prints
+  it numbered, and re-running a recalled line does not append a duplicate.
+- **`Ctrl-C`** at the prompt just clears the line. Mid-run it **cancels**:
+  children are killed, the line reports 130, and the prompt comes back so the
+  session continues. One item already produced by the source can still print
+  after the repaint — cosmetic, the source is stopped.
+- **`Ctrl-D`** (or `exit`) leaves; the exit code is 0 unless you `exit <code>`.
+
+To drive it non-interactively, remember crust checks for a TTY — so pace bytes
+through `script`:
+
+```bash
+( printf 'range(1,3)\n'; sleep 1; printf '\004' ) | script -qec 'crust' /dev/null
+```
+
+The REPL does **not** do backslash continuation: a `\` there is a character you
+typed. Continuation belongs to scripts, piped stdin and multi-line `-c`.
+
+## Where crust's globals exist
+
+`GET`, `range`, `parallel`, `load`, `procs`, `$` and `crust.*` — plus everything
+`init.ts` defines — exist wherever **crust starts its runtime**: the REPL, `-c`,
+piped stdin, a script file, `~/.config/crust/init.ts`, and any `.ts`/`.js` file
+crust imports (`source hooks/warmup.ts` — inside it, `load` is simply there).
+
+A file run by plain `bun script.ts` never starts crust, which is why `GET is not
+defined` there is not a bug. Import what you need from the modules, or run the
+file under crust. See [Compiled binary vs npm module](/docs/binary-vs-npm/).
+
+## Auto-discovered stages
+
+crust scans your **global bun install** at startup and turns opted-in packages
+into pipeline stages with no `init.ts` entry.
+
+- A package with a `bin` field and **no** `crust` field is skipped, so it keeps
+  working as a plain shell command. Add `"crust": { "stage": "default" }` (or a
+  named export) and it becomes a stage *as well as* a command.
+- Scoped packages are exposed after the `/` (`@me/shout` → `shout`). A name
+  already registered by `crust.fn` in `init.ts` wins — discovery never
+  overwrites explicit config.
+- The scan is cached at `$CRUST_CACHE_DIR/globals.json` (default
+  `~/.cache/crust`), keyed on the prefix `package.json`'s mtime. Change the
+  install by hand and delete that file.
+- `CRUST_DEBUG=1` prints every decision — `skipping "x" — has bin field`,
+  `name collision on …`. That is where to look when a package you expected is
+  simply not a stage.
+
+## Traps
+
+- **Read `$?`, never after a pipe**, and never trust a wrapper script that
+  swallows `argv`. crust's binary takes its own arguments and refuses the ones
+  above; a wrapper that drops them reports success on a line that never ran.
+- **`--check` ok is not "will pass"** — it is "parses". The gate you want is
+  `--check` for the shape and a real run for the result.
+- **A pure-shell line has no `pipefail`.** End every CI line on a crust stage.
+- **`--env-file` does not combine with `--check`**, and a missing env file is
+  exit 2 rather than a shrug.
+- **124 is yours, 127 might not be yours.** `124` is always an outer `timeout`;
+  `127` means a shell stage's command was not found — or that you passed a
+  builtin's name where crust expected a script path.
+
+## Related
+
+- [Quickstart](/docs/quickstart/) — the five-minute version, including how to
+  read the examples
+- [CI load gates](/docs/recipes/ci-load-gates/) — these exit codes doing their
+  job in a pipeline
+- [Pipe shorthand vs TypeScript](/docs/pipes-vs-typescript/) — the two ways to
+  express the same line
+- [crust-builtins](/docs/agent-skills/builtins/) — which names are builtins and
+  which are stages

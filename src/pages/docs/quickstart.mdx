@@ -11,6 +11,8 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
 
 > At wide viewports the two panes sit side-by-side. On narrower screens use the `bsh` / `ts` tabs at the top of each block; your choice carries across the page.
 
+> **Reading the blocks.** A block that starts with a tool name — `mock-server ./openapi.yaml -p4000`, `skills install`, `test-fixture fixtures/*.crust.ts` — is a **crust line**, not a shell command: type it at the REPL, or as `crust -c '<line>'`. A builtin is not an argv subcommand; crust treats every positional as a script file, so `crust mock-server -p4000 …` exits **2** (`script arguments are not supported`) and `crust verify-web-links` alone exits **127** (`cannot read verify-web-links`) — neither one means crust is missing.
+
 ## Install & launch
 
 <InstallBlock />
@@ -262,9 +264,14 @@ Loads `.env` into the live session (`process.env`). `overwrite` is the default; 
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Programmatic — same effect from a script
-  import { loadDotenv } from "crust/dotenv";
-  await loadDotenv({ path: ".env.local", mode: "append" });
+  // There is no library entry point for this one: `dotenv` is a shell-line
+  // builtin that mutates crust's own Context and history. From TS, read the
+  // file yourself — or run the line.
+  const env = await Bun.file(".env.local").text();
+  for (const line of env.split("\n")) {
+    const [k, ...rest] = line.split("=");
+    if (k && !process.env[k]) process.env[k] = rest.join("=");
+  }
   ```
   </Fragment>
 </CodeSwitcher>
@@ -390,7 +397,7 @@ Generates the negative-test matrix (401/403/404 + per-field 400s and boundary vi
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  import { generateFixtures } from "crust/genFixtures";
+  import { generateFixtures } from "crust/genFixtures/generate";
 
   const { files, totalCases } = await generateFixtures({
     swagger: "./openapi.json",
@@ -422,11 +429,11 @@ Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
   <Fragment slot="ts">
   ```ts
   // Programmatic — useful when embedding the mock in a test harness
-  import { startMockServer } from "crust/mockServer";
-  const handle = await startMockServer({
-    swagger: "./openapi.yaml",
-    port: 4000,
-  });
+  import { loadSpec } from "crust/mockServer/loadSpec";
+  import { startServer } from "crust/mockServer/server";
+
+  const { spec } = await loadSpec("./openapi.yaml");
+  const handle = await startServer({ spec, port: 4000, stateful: true });
   // ... run tests ...
   await handle.stop();
   ```
