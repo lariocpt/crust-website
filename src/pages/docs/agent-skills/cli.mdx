@@ -16,7 +16,7 @@ against the binary, not inferred from its source.
 | `crust` (stdin is piped) | Reads **lines of crust** from stdin to EOF and runs them like a script — fail-fast, same exit codes. stdin is the *command* source here, so a shell stage inside those lines sees EOF. Want data on stdin? Use `-c`. |
 | `crust run.crust` | Script mode: blank lines and `#` comments are skipped (so a `#!/usr/bin/env crust` shebang works), lines run in order, and the **first failing line stops the file** and becomes the process exit code. A line ending in `\` continues on the next. The extension doesn't matter. |
 | `crust -c '<line>'` | One line. A shell stage inherits the process stdin, so `docker logs app \| crust -c 'grep ERROR'` really does grep the logs. To feed a **crust** pipeline, name the source: `docker logs -f app \| crust -c 'stdin \| grep ERROR'`. |
-| `crust --check '<line>'` | Parse without running. [Below](#check-the-linter-and-its-edges). |
+| `crust --check '<line>'` | Parse without running. [Below](#--check-the-linter-and-its-edges). |
 | `crust --env-file <path> …` | Loads `.env` before *any* run mode and before `init.ts`. |
 | `crust -h` / `-V` | Usage / version, exit 0. |
 
