@@ -66,17 +66,19 @@ The path of least resistance. Bun ships a native Postgres client.
 
 ### Connection pooling
 
-`Bun.SQL` pools connections by default — crust caches the client across `sql` calls within a session. To force a reconnect (after credentials rotate, or to swap databases mid-session), set `$DATABASE_URL` to a new value and restart the shell, or call the internal reset hook from `init.ts`:
+`Bun.SQL` pools connections by default. Crust builds the client the first time `sql` runs in a process, reading `$DATABASE_URL` at that moment, and caches it for the rest of the session — there is no reset hook. Pointing at a different database (credentials rotated, a second schema) means a new process: a fresh `crust -c '…'`, or a new REPL.
+
+For more than one database in the same session, skip the `sql` builtin and open your own pool — a lambda stage is plain TypeScript running inside crust, so it can use it directly:
 
 ```ts
-import { _resetSqlClient } from "crust/builtinFns/sql";
-
-crust.fn("sql-reset", () => {
-  _resetSqlClient();
-  return "ok";
-});
-// Then in the shell:  sql-reset
+// init.ts — a second pool, reachable from any crust line via a global
+import { SQL } from "bun";
+const reporting = new SQL(process.env.REPORTING_URL!);
+globalThis.watch = (email: string) =>
+  reporting.unsafe("insert into watchers (email) values ($1)", [email]);
 ```
+
+Then `lines users.csv | (email => watch(email))` writes to the second database while `sql` keeps using `$DATABASE_URL`.
 
 ### SSL / TLS
 

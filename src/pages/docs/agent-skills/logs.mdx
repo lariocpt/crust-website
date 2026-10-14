@@ -1,0 +1,132 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-logs
+description: The logs session — it holds a tail/procs/shell source open behind a ring buffer, so every query you type runs over the past you already streamed and then over the live stream. Session commands, json on and the silent zero it prevents, item types per source, and why a fragment runs twice.
+---
+
+**`crust-logs`** is for the moment a tail stops being a window and starts being
+a dataset. `logs <source>` keeps the source open with a ring buffer behind it
+(10,000 items by default), and every line you type at `logs>` is an ordinary
+crust pipeline fragment — the whole grammar is the query language, so widening
+your question doesn't mean restarting your tail.
+
+```bash
+logs tail -n 0 -F app.log
+logs procs({web: "bun run dev", api: "bun api.ts"})
+logs docker logs -f my-container
+logs --buffer 50000 tail -F big.log
+```
+
+Boot tells you what it holds:
+
+```
+logs: tail -n 0 -F app.log — buffering last 10000 items (`help` for commands, `exit` to leave)
+```
+
+## A fragment runs twice
+
+This is the one rule that changes how you write queries: a fragment runs once
+over the **buffer snapshot**, then over the **live stream** until Ctrl-C, past a
+`-- live --` marker. The point is that you never lose the history you already
+scrolled past — but it also means **side effects fire twice**. Append with `>>`,
+never `>`, and know that a `POST` fragment re-sends buffered matches.
+
+```
+logs> grep ERROR | wc -l
+36
+-- live --
+^C
+37
+```
+
+**Ctrl-C once** ends the live view *gracefully*: the stream finishes, so
+terminal stages flush — a query ending in `stats` prints its summary right then,
+`wc -l` prints its count. **Ctrl-C twice** hard-cancels a stuck query. The
+session survives both, and a query that fails on the retro pass prints its error
+and simply re-prompts: nothing a query does can kill the session or the source
+it is holding.
+
+## Session commands
+
+| Command | What it does |
+|---|---|
+| `search <text>` | Fixed substring over the **buffer only** — matches highlighted and a count that always prints, zero included (`search: 5 matching item(s) of 36 buffered`). No live view, so no Ctrl-C dance. For regex, case-folding, or live matching, run a `grep` query instead |
+| `json on` / `json off` | Parse string items **at query time** — [below](#json-on-and-the-silent-zero) |
+| `buffer` / `buffer N` | Report usage (`buffer: 57/10000 items (pushed 57, evicted 0)`) or resize live, newest kept. Widen a too-small window without losing the held source |
+| `clear` | Empty the buffer |
+| `help` | The command list, including the double-run note |
+| `exit` / Ctrl-D | Tear the source down and leave (`procs` get SIGTERM → SIGKILL) |
+
+Up-arrow recalls earlier queries, because iterating on a filter is the whole
+session.
+
+## `json on` and the silent zero
+
+With `json off` — the default — items are the raw strings. A lambda that reads
+fields therefore matches **nothing**, quietly. Measured: 50 buffered NDJSON
+lines, and
+
+```
+logs> filter (e => e.level >= 30) | wc -l
+0
+```
+
+exit clean. `json on` fixes that at query time: a string item that parses to a
+JSON **object or array** reaches your lambdas parsed, while plain text, strings
+that parse to primitives (`"42"` stays a string), and non-string items flow
+through unchanged — and are counted out loud, because "I did not parse this" is
+information. The ring stores **raw** items, so `json off` is a lossless revert:
+nothing is lost by turning it on and off again.
+
+When the buffer looks like NDJSON the session says so once, on your first
+*pipeline* fragment (deliberately not on `help` or `search`):
+
+```
+hint: buffer looks like NDJSON — `json on` parses object lines at query time (`json off` reverts)
+```
+
+It never auto-enables. Changing the item type underneath a lambda you already
+typed would be exactly the false picture the rest of the tool works to avoid.
+
+## Item types by source
+
+- `tail` and shell sources produce plain **strings**.
+- `procs({...})` produces `{proc, stream, line}` **objects**, and the session
+  tells you at boot:
+  `logs: items are {proc, stream, line} objects — try (l => l.line) or filter (l => l.proc === "web")`.
+  So `(l => l.line)` extracts text, `filter (l => l.proc === "web")` selects one
+  process, and `search` still works — it matches each item's rendered form.
+- Pretty-printing is just another stage: `grep api_request | pino-pretty
+  --colorize --singleLine` (`--colorize` forces ANSI through the pipe, and a
+  local `node_modules/.bin` is on PATH). Normalize `procs` objects to text
+  first.
+
+Full worked sessions are in [Log mining](/docs/recipes/log-mining/) and
+[One dev tail](/docs/recipes/dev-tail/).
+
+## Traps
+
+- **`logs` is interactive-only.** No tty → exit **2** with the way out:
+  `logs: interactive session needs a tty — for piped data use `cmd | crust -c 'stdin | …'``.
+  Piped data has no session and no buffer; build the pipeline directly.
+- **The `logs` line owns its line.** `logs tail -F app.log | grep ERROR` is
+  refused — `logs is a crust builtin — it runs in-process, so sh cannot run it`
+  — rather than letting sh answer `command not found`. Type the filter at `logs>`.
+- **A gate query runs against the buffer first.** `count 1` or `expect 200`
+  fails on history before a single live item arrives. That is the honest order,
+  but it means a gate inside `logs` judges the past, not only what follows.
+- **`search` is buffer-only and never reads regex.** It is the instant count, not
+  a grep.
+- **Ctrl-C at an idle prompt is nothing** — it prints `^C` and re-prompts while
+  the source keeps running. `exit` (or Ctrl-D) is the teardown, verified with a
+  `procs` source including after a Ctrl-C: the group gets SIGTERM → SIGKILL and
+  no child survives the session.
+
+## Related
+
+- [Log mining](/docs/recipes/log-mining/) — forensic queries, and the session
+  against a file
+- [One dev tail](/docs/recipes/dev-tail/) — the session over a whole dev stack
+- [crust-procs](/docs/agent-skills/procs/) — what `{proc, stream, line}` is and
+  how the supervisor behaves
+- [crust-cli](/docs/agent-skills/cli/) — why interactive-only means exit 2

@@ -34,7 +34,7 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   <Fragment slot="ts">
   ```ts
   // Programmatic — exit code drives CI
-  import { runCli } from "crust/verifyWebLinks";
+  import { runCli } from "crust/verifyWebLinks/cli";
 
   const code = await runCli([
     "--base-url", "https://example.com",
@@ -68,6 +68,37 @@ crust -c "verify-web-links https://shop.example.com \
 
 OG images get an extra check: every `<meta property="og:image" content="...">` URL is fetched and the response content-type must start with `image/`.
 
+## What counts as a page
+
+A fetched document is crawled for links when crust can read it as HTML. Either the server says so —
+`text/html` or `application/xhtml+xml`, HTML's own XML-serialised media type — or the declaration
+says otherwise and the document itself begins `<!doctype html>` / `<html`. That second case is
+printed rather than passed over quietly:
+
+```text
+  note: 1 page(s) had to be recognised from their body or an xhtml content-type — the server
+        serves HTML without saying text/html
+```
+
+The sniff is deliberately strict about position: the marker has to be the first thing in the body
+(after a BOM and whitespace), so a `text/plain` file that merely quotes an HTML snippet in its
+middle does not become a page whose every string is a URL to check. It costs nothing, either — the
+asset path already drains the body to avoid leaking the stream.
+
+A page-shaped document that is *neither* (a JSON API response that ended up in a sitemap) is **not**
+crawled: its `<a href>` strings are data, not links. It is counted in `totals.unparsedPages`, which
+makes `totals.complete` false. Before that sniff existed, a sitemap of `application/xhtml+xml` pages
+reported `0 page(s), 1 asset(s), 0 failure(s)` and exited 0 over a dead link two hops away — the
+header ended the crawl.
+
+`totals.complete` is the machine-readable version of "nothing was left unchecked": false when
+`--max-pages` cut the crawl short, when a `#fragment` link pointed at a page crust never parsed, or
+when `unparsedPages` is nonzero. Pass `--strict` to turn that same fact into exit 1. Prefer it over
+reading the JSON in CI: a builtin runs on its own line, so `verify-web-links --json | assert (r =>
+r.totals.complete)` is refused outright, and a shell that has to remember each field will eventually
+forget one. `--strict` is current on `main`; it is not in the published release this page's grammar
+gate lints against, which is why it appears here in prose and not in a runnable block.
+
 ## Flags
 
 | Flag | Default | Notes |
@@ -85,6 +116,7 @@ OG images get an extra check: every `<meta property="og:image" content="...">` U
 | `--include-external` | off | Also status-check external links. |
 | `--exclude <substring>` | — | Skip URLs containing the substring (repeatable). For subtrees that redirect by design — a WooCommerce `/checkout/` with an empty cart, a `/wp-admin/` login wall. |
 | `--max-pages N` | 0 (unlimited) | Stop fetching after N URLs; the report says how many discovered URLs were left unchecked. Safety valve for crawls that explode (Woo filter URLs). |
+| `--strict` | off | Exit 1 unless every discovered link was checked: a `--max-pages` cut-off, an unchecked `#fragment` link, or a page crust could not read as HTML all count. The same fact is `totals.complete` in `--json`. |
 | `--no-progress` | off | Silence the 5-second progress heartbeat on stderr. |
 | `--json` | off | Emit a machine-readable report on stdout. |
 
@@ -122,19 +154,24 @@ Keys are the literal property/name attribute — `title`, `description`, `og:tit
 
 ## Pairing with CI
 
-`verify-web-links` exits non-zero on any failure, so it drops straight into a pipeline:
+`verify-web-links` exits non-zero on any failure, so it drops straight into a pipeline. Add
+`--strict` and it also fails when the run finished having left discovered links unchecked — a
+bounded crawl can no longer pass as a clean one:
 
 ```bash
 # After a build, run against the deployed preview URL
 verify-web-links "$PREVIEW_URL" --fixtures site/**/*.meta.crust.ts
 ```
 
-Or chain with other crust builtins for a full pre-deploy gate:
+Or combine the builtins into a full pre-deploy gate. Each is its own `crust -c`
+because a builtin runs in-process: `mock-server … &` would hand `sh` a name it
+does not have, and inside crust the `&` is refused outright.
 
 ```bash
-mock-server ./openapi.yaml -p4000 &
-test-fixture fixtures/*.crust.ts
-verify-web-links http://localhost:3000 --fixtures site/*.meta.crust.ts
+crust -c 'mock-server ./openapi.yaml -p4000' &
+crust -c 'wait :4000/pets --timeout 20s'
+crust -c 'test-fixture fixtures/*.crust.ts'
+crust -c 'verify-web-links http://localhost:3000 --fixtures site/*.meta.crust.ts'
 ```
 
 ## Exit codes
@@ -142,7 +179,7 @@ verify-web-links http://localhost:3000 --fixtures site/*.meta.crust.ts
 | Code | Meaning |
 |---|---|
 | `0` | All checks pass. |
-| `1` | One or more failures (broken link, missing anchor, redirect chain, OG image issue, meta mismatch). |
+| `1` | One or more failures (broken link, missing anchor, redirect chain, OG image issue, meta mismatch). With `--strict`: also a run that finished having left discovered links unchecked. |
 | `2` | Bad args, sitemap unreachable, or fixtures malformed. |
 
 ## Related

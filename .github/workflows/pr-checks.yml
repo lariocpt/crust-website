@@ -1,0 +1,55 @@
+name: PR checks
+
+# The Pages deploy workflow only fires on push to `main`, so a pull request
+# gets no signal before it merges — and the one class of bug that workflow
+# cannot catch is the one this repo keeps producing: `astro build` is happy
+# about an href that points at a route it never built, so a dead link ships as
+# a live 404.
+#
+# Both build modes are checked: the default one, and the public one the deploy
+# actually publishes (BASE_PATH=/crust-website), because internal hrefs differ
+# between them and only the second is what users receive.
+#
+# The grammar gate (lint-examples.mjs) deliberately does NOT run here. It needs
+# a crust binary, and the only one CI can fetch is the last *published*
+# release — which lags this repo on purpose, so a docs PR describing behaviour
+# that is waiting on a crust release would go red through no fault of its own.
+# Keep it on `main`, where a release always exists by then.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Internal links
+        run: bun scripts/check-links.mjs
+
+      - name: Build (public mode, as the Pages deploy does)
+        env:
+          PUBLIC_SITE: "1"
+          SITE_URL: https://lariocpt.github.io
+          BASE_PATH: /crust-website
+        run: |
+          rm -rf dist
+          bun run build
+          bun scripts/check-links.mjs

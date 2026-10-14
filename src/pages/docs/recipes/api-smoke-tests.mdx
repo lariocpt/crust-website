@@ -341,8 +341,8 @@ When the query is constant — no upstream interpolation needed — call `sql` a
   sql "select id, email from users order by id desc limit 5" | (r => r.email)
 
   # Transform with static params — last item passes through, params are constant
-  range(0, 0)
-    | sql "select count(*) as n from users where email like $1" "%@example.com"
+  range(0, 0) \
+    | sql "select count(*) as n from users where email like $1" "%@example.com" \
     | (rows => rows[0].n)
   ```
   </Fragment>

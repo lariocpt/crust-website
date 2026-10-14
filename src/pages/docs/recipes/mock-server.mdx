@@ -38,15 +38,20 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Embed in a test harness — start + stop programmatically
-  import { startMockServer } from "crust/mockServer";
+  // Embed in a test harness — start + stop programmatically. In-repo these
+  // paths are ../src/mockServer/…; the library isn't on npm yet.
+  import { loadSpec } from "crust/mockServer/loadSpec";
+  import { startServer } from "crust/mockServer/server";
 
-  const handle = await startMockServer({
-    swagger: "./openapi.yaml",
+  const { spec } = await loadSpec("./openapi.yaml");
+  const handle = await startServer({
+    spec,
     port: 4000,
-    host: "0.0.0.0",
+    hostname: "0.0.0.0",
+    stateful: true,
   });
 
+  // handle.port is the port actually bound — pass 0 and read it back.
   // ... your tests ...
 
   await handle.stop();
@@ -87,14 +92,18 @@ The server walks the operation in this order to choose a body:
    walked:
    - `string` → a value that satisfies the schema's own constraints: a format-aware default for
      `email`, `date-time`, `uuid`, `uri`; otherwise a value constructed from `pattern` — character
-     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals, and alternation
-     **between top-level branches** —
-     and **verified against the real regex before it is used**, so a construction crust
-     cannot manage degrades to a neutral value rather than a confidently wrong one. Alternation is
-     read only where it separates whole branches: a `|` nested in a group (`^(a|b)$`) is not
-     something the character walk can choose between, so it degrades like any other declined
-     construction, while a pipe inside a character class (`[\w|-]`) is just one of its members
-     and is built normally. Values are then clamped to `minLength` / `maxLength` — but **never in a way that unmakes the match just
+     classes, `\d \w \s .`, the quantifiers `{n} {n,m} + * ?`, `\uXXXX` escapes inside a class (`[\u0031-\u0039]` **is** `[1-9]`, and AWS writes it that way), literals, and **groups**: `(?:…)` is read as the
+     ordinary group it is, an alternation inside a group takes its first buildable branch, and a
+     group counts as one atom so `(…){n}`, `(…)*`, `(…)+` and `(…)?` repeat what the group matched.
+     That is the difference between a placeholder and a value for the shapes specs really write —
+     `^(subnet-[0-9a-f]{8}|subnet-[0-9a-f]{17})$` yields `subnet-00000000`,
+     `^([0-9]{1,3}\.){3}[0-9]{1,3}$` yields `0.0.0.0`, and the base64 content pattern yields `AA==`.
+     All of it **verified against the real regex before it is used**, so a construction crust
+     cannot manage degrades to a neutral value rather than a confidently wrong one — reading more
+     can cost a build that should have worked, never a value that is wrong. Alternation is never
+     **joined**: `(a|b)` builds one branch, never `a|b`, because the match is an unanchored test —
+     a joined value passes it and breaks the `maxLength` beside it. A pipe inside a character class
+     (`[\w|-]`) is just one of its members and is built normally. Values are then clamped to `minLength` / `maxLength` — but **never in a way that unmakes the match just
      verified**. A length is bought by widening a quantifier that was already open-ended (`+`, `*`,
      `{n,}`); a fixed-width `{3}` is never widened, since that would be the same mistake in a new
      place. Where a pattern and a length bound cannot both hold, the pattern wins — it is the
@@ -104,8 +113,11 @@ The server walks the operation in this order to choose a body:
      36 characters; crust keeps the valid uuid rather than emitting `"00000000"`, which would trade
      a `maxLength` violation for a `format` one and lose the useful value on the way. Lengthening
      still applies: padding an email to `minLength` is harmless where truncating a uuid is not. Plain `"string"` appears only when
-     nothing constrains the field. A pattern crust cannot sample — a character class like
-     `[0-9]+`, as opposed to `\d{3}` — falls back to a neutral value rather than a guess:
+     nothing constrains the field. What crust still declines — a lookahead or lookbehind, a named
+     or atomic group, a back-reference, nesting past eight levels, `\A`/`\Z` (Python anchors, which
+     ECMA-262 reads as the letter `A`), or a pattern written as a JavaScript regex literal
+     (`/^[a-z0-9._]+$/`, where JSON Schema takes the leading slash as a literal and nothing can
+     satisfy it) — falls back to a neutral value rather than a guess:
      knowingly wrong beats confidently wrong, and `--validate` reports it.
    - `integer` / `number` → `0`, **or the nearest value the schema's own `minimum` / `maximum`
      allows** — a `{"minimum": 1}` page counter is never mocked as `0`. Both `exclusiveMinimum` /
@@ -169,11 +181,13 @@ The server walks the operation in this order to choose a body:
    detection the cost of a complete body grows with the number of **paths**, not nodes: 52 million
    expansions for 134 responses and 53 seconds for that one file, which from outside is a hang.
 5. Local `$ref`s into `components.schemas.*` are resolved, and **narrowing keywords written beside a
-   `$ref` apply** — `enum`, `format`, `pattern`, the bounds, `example`, `default` — since OpenAPI 3.1
+   `$ref` apply** — `enum`, `format`, `pattern`, the bounds, `example`/`examples`, `default` — since OpenAPI 3.1
    permits them and they are how a spec restricts one use of a shared type. **Structural** siblings
-   (`type`, `properties`, `items`) are deliberately ignored: sibling keywords were illegal beside
+   (`type`, `properties`, `items`, `required`, `nullable`, `allOf`/`oneOf`/`anyOf`) are deliberately ignored: sibling keywords were illegal beside
    `$ref` before 3.1, so Swagger-2 conversions are full of leftovers the tools of that era ignored,
-   and acting on them makes correct bodies wrong. A **cyclic** `$ref` terminates with the
+   and acting on them makes correct bodies wrong. `gen-fixtures` inlines a `$ref` by this same rule,
+   so both halves of crust read one referring node the same way — the britbox and digitalocean numbers
+   are in the gen-fixtures page. A **cyclic** `$ref` terminates with the
 properties its schema REQUIRES and nothing else. Dropping the optional ones is what makes it finite,
 since the property that closes the loop is nearly always optional — a slot may contain a sub-slot.
 A required property that closes the loop gets the empty shape of the type it declares. A required
@@ -422,6 +436,18 @@ The governing rule: **a schema the walker can't judge validates successfully.** 
 
 `--validate` composes with `--stateful`: an invalid POST answers `422` and **creates nothing** — which is exactly what makes the combination a good stand-in backend for frontend form work. (The mock's `422` is deliberately distinct from your real server's documented `400` contract — [generated negative fixtures](/docs/recipes/gen-fixtures/) still belong against the real thing.)
 
+### A Swagger 2.0 body is a parameter, and it is validated
+
+2.0 has no `requestBody`: the body of an operation is a parameter with `in: body`, and the conversion used to drop that parameter — so `--validate` on a 2.0 document had no body to validate at all. What that looked like, measured against a schema requiring `name`: `POST /widgets` with `{"size":"nope"}` was answered with the documented `201`, and so were `"a string"` and `{}`. Now it answers `422` carrying `missing required property 'name'` and `expected integer, got string`, while a valid body still gets its `201` and its synthesised response.
+
+That is **1,528 specs and 10,870 operations** of the APIs-guru corpus — a third of it, every one Swagger 2.0: 10,083 declare the parameter on the operation, 775 reach it through `$ref: #/parameters/…`, 12 declare it once on the path item. The media type comes from `consumes`, operation-level first and JSON preferred; a declared non-JSON type is carried as declared, so a form body stays a form body and is still not validated (the governing rule above).
+
+`GET` and `HEAD` are the exception, and deliberately so: 9 corpus specs declare a body there, 12 of them `required` (azure botservice/mariadb/mysql, hetras, n-auth, ticketmaster, illumidesk). No client can send one — `fetch` refuses outright — so answering those requests `422 request body is required but absent` would be inventing a violation of a request nobody can make. Those parameters stay exactly where they were, and the mock answers the documented status.
+
+The same rule holds for a native 3.x `requestBody`, and it was needed there: **20 specs and 270 `GET` operations** declare one (openapi 3.0.0 245 ops / 12 specs, 3.0.3 23 / 6, 3.0.1 and 3.1.0 1 each), and Bun discards a `GET` body before your handler sees it — measured through `Bun.serve`, the request arrives with `content-length: 13` and `arrayBuffer()` reads 0 bytes. So `required: true` on a `GET` is not enforceable by anyone, and crust never reports it. The 10 `required` ones, across 7 specs, were the ones refusing every `GET`: `trakt.tv`'s `GET /shows/{id}/progress/collection` documents a required body and a `200`, and `--validate` answered **422 request body is required but absent** to every request it — well-formed ones included, because no client can satisfy that requirement. It answers the `200` now. "Never *require*" is the rule, not "ignore": a body that does arrive on a `GET` is still validated against its schema.
+
+End to end, on a real 2.0 spec (`aiception.com`) rather than a repro: the 12 requests its new negative cases make were answered **201 by the old converter and 422 by this one, 12 of 12 both ways**, and the schema-valid body for the same five operations is still accepted — a fix that rejected everything would score perfectly on the first half.
+
 ## Validation proxy — `--proxy <upstream>`
 
 The proxy flips the question. The mock asks "does my client speak the spec?"; the proxy asks "**does my real backend speak the spec?**" — while your existing tests provide the traffic:
@@ -499,17 +525,24 @@ Step 3's failure message prints the violations object itself, and `violations.nd
 
 ## Pairing with crust pipelines
 
-The mock is just an HTTP server — drive it with normal crust pipelines.
+The mock is just an HTTP server — drive it with normal crust pipelines. Each
+line is its own `crust -c` because a builtin runs **in-process**: `mock-server …
+&` at a shell prompt would hand `sh` a name it does not have, and inside crust a
+`&` is refused for the same reason. Background the process, then gate on
+readiness instead of `sleep` — `:4000/pets` because a spec-driven mock has no
+root route, so a bare `wait :4000` would probe `/`, get a 404, and time out on a
+server that is perfectly up (`wait port:4000` is the path-free alternative).
 
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
   # Smoke-test every fixture against the mock
-  mock-server ./openapi.yaml -p4000 &
-  test-fixture fixtures/*.crust.ts -o report.md
+  crust -c 'mock-server ./openapi.yaml -p4000' &
+  crust -c 'wait :4000/pets --timeout 20s'
+  crust -c 'test-fixture fixtures/*.crust.ts -o report.md'
 
   # Burn-in: 10k requests across 100 workers
-  range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats
+  crust -c 'range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats'
   ```
   </Fragment>
   <Fragment slot="ts">
