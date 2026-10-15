@@ -62,9 +62,9 @@ import { href } from '../lib/site';
 				</FeatureCard>
 				<FeatureCard icon="🤖" title="Agent skills, embedded">
 					<p>
-						<code>skills install</code> drops nine Claude agent skills into
-						<code>.claude/skills/</code> — grammar-lint-tested against the live parser, so
-						examples can't rot.
+						<code>crust skills install</code> drops nine Claude agent skills into
+						<code>.claude/skills/</code> — pick which ones in a terminal menu — and they
+						are grammar-lint-tested against the live parser, so examples can't rot.
 					</p>
 				</FeatureCard>
 				<FeatureCard icon="🔗" title="Verify web links + SEO">
@@ -77,7 +77,8 @@ import { href } from '../lib/site';
 				<FeatureCard icon="🔌" title="One-liner mode">
 					<p>
 						Stay in your shell — call <code>crust -c '…'</code> from bash/zsh/fish for the
-						lines where pipeline syntax wins.
+						lines where pipeline syntax wins, and the tools as commands:
+						<code>crust mock-server openapi.json</code>, <code>crust skills install</code>.
 					</p>
 				</FeatureCard>
 			</div>

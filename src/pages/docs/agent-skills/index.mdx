@@ -38,7 +38,7 @@ crust-verify-web-links
 ## The nine skills
 
 All nine have a page: usage directions, worked examples, and the reasoning
-behind them. `skills install <name>` writes the same skill into
+behind them. `skills install --select <name>` writes that skill into
 `./.claude/skills/` for a coding agent to read; the pages are for the human
 deciding which one that should be.
 
@@ -57,13 +57,35 @@ deciding which one that should be.
 ## Install
 
 ```bash
-skills install              # write to ./.claude/skills/<name>/SKILL.md  (project)
-skills install --global     # write to ~/.claude/skills/                 (every project)
+crust skills install          # on a terminal: pick which ones, into ./.claude/skills
+crust skills install --all    # everything, no menu
+crust skills install --select crust-cli,crust-logs
+crust skills install --global # target ~/.claude/skills instead of ./.claude/
 ```
 
 ```text
 skills: installed 9, up-to-date 0 → /app/.claude/skills
 ```
+
+On a terminal, install is a **menu** rather than nine files appearing: one row
+per skill, its status in the directory you are about to write to — `not
+installed`, `current`, `EDITED locally` — pre-checked to everything not already
+current. Arrows or `j`/`k` move, `space` toggles, `a` toggles all, `g` switches
+between the project and `~/.claude/skills` (recomputing every status, because a
+skill current in your project may be missing from your home), `f` allows
+overwriting your own edits, `enter` installs, `q` leaves everything alone.
+Cancel is exit `0`: declining is not a failure.
+
+Piped or non-interactive output has no menu and installs everything it is
+told to — `--all` for the same result explicitly, `--select a,b` for a subset,
+and an unknown name exits `2` listing the valid ones. `crust skills install
+--help` documents the flags.
+
+When crust comes from npm, `npm install` asks once whether to install the
+skills. It never asks on CI, with piped output, for a global install, when
+crust is somebody's dependency, or once crust skills are already in the
+project — and it can never fail the install. `CRUST_NO_SKILLS=1` stops the
+question for good.
 
 Project-level install is the default and usually the right call: the skills land next to your code, get committed, and every agent (and teammate's agent) working in the repo picks them up. `--global` suits a machine where *you* use crust everywhere but don't want to touch each repo.
 
@@ -80,13 +102,13 @@ skills: 1 file(s) differ from the embedded version — pass --force to overwrite
   /app/.claude/skills/crust-pipelines/SKILL.md
 ```
 
-`skills install --force` overwrites with the embedded version. Exit codes: `0` ok, `1` refused overwrites, `2` bad args.
+`skills install --force` overwrites with the embedded version. Exit codes: `0` ok (including "cancelled — nothing written"), `1` refused overwrites, `2` bad args.
 
 Typical upgrade flow — after updating crust, refresh the skills so they describe the binary you now have:
 
 ```bash
-skills install          # picks up new/changed skills; exits 1 if you have local edits
-git diff .claude/skills # review what the new crust version taught differently
+crust skills install --all # picks up new/changed skills; exits 1 if you have local edits
+git diff .claude/skills    # review what the new crust version taught differently
 ```
 
 ## How the grammar lint keeps them honest

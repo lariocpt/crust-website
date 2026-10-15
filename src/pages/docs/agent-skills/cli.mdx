@@ -15,6 +15,7 @@ against the binary, not inferred from its source.
 | `crust` (stdin is a TTY) | Interactive REPL. |
 | `crust` (stdin is piped) | Reads **lines of crust** from stdin to EOF and runs them like a script — fail-fast, same exit codes. stdin is the *command* source here, so a shell stage inside those lines sees EOF. Want data on stdin? Use `-c`. |
 | `crust run.crust` | Script mode: blank lines and `#` comments are skipped (so a `#!/usr/bin/env crust` shebang works), lines run in order, and the **first failing line stops the file** and becomes the process exit code. A line ending in `\` continues on the next. The extension doesn't matter. |
+| `crust <tool> [args…]` | A **tool builtin as a subcommand**: `crust skills install`, `crust mock-server openapi.json -p4000`, `crust test-fixture 'fixtures/*.crust.ts' -j8`. Same flags as the REPL line; `crust <tool> --help` prints them. A file that exists wins when it is the only argument, so `crust skills` runs `./skills`. The session builtins (`cd`, `export`, `alias`, `source`, `dotenv`) and `logs` are not reachable this way, and say so by name at exit `2` — a one-shot process has no session to change, and `logs` takes the rest of its line verbatim. |
 | `crust -c '<line>'` | One line. A shell stage inherits the process stdin, so `docker logs app \| crust -c 'grep ERROR'` really does grep the logs. To feed a **crust** pipeline, name the source: `docker logs -f app \| crust -c 'stdin \| grep ERROR'`. |
 | `crust --check '<line>'` | Parse without running. [Below](#--check-the-linter-and-its-edges). |
 | `crust --env-file <path> …` | Loads `.env` before *any* run mode and before `init.ts`. |
@@ -29,10 +30,13 @@ splits into three `argv` words. Several lines in one `-c` are fine: put a
 
 That is also the rule a copied example depends on. Every bare tool name in a
 ` ```bash ` block on this site — `mock-server ./openapi.json -p4000`,
-`skills list` — is a **crust line**, so it runs at the REPL or as
-`crust -c '<line>'`. Run as `crust mock-server …` it is a *script path with
-arguments*: exit 2, and a lone name exits **127**, which looks exactly like a
-missing binary.
+`skills list` — is a **crust line**, so it runs at the REPL, in a script, or as
+`crust -c '<line>'`. Prefix it with `crust` and it runs from your shell the same
+way: `crust mock-server ./openapi.json -p4000`. On crust **0.2.4 and earlier**
+the shell spelling was the mistake to avoid — every positional was a script
+path, so that line exited 2 and a lone tool name exited **127**, which looks
+exactly like a missing binary. If `crust <tool>` reports `cannot read <tool>`,
+that is your crust, not a missing install.
 
 ## Exit codes
 
@@ -221,8 +225,9 @@ into pipeline stages with no `init.ts` entry.
 - **`--env-file` does not combine with `--check`**, and a missing env file is
   exit 2 rather than a shrug.
 - **124 is yours, 127 might not be yours.** `124` is always an outer `timeout`;
-  `127` means a shell stage's command was not found — or that you passed a
-  builtin's name where crust expected a script path.
+  `127` means a shell stage's command was not found — or a script path crust
+  could not read, which on **0.2.4 and earlier** included a builtin's name.
+  Passing one is a command now, and it exits 2 with the tool's own usage.
 
 ## Related
 
