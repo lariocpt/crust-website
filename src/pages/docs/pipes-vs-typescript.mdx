@@ -112,6 +112,24 @@ expectStage(matcher)          // transform — fails on mismatch
 $                             // Bun's tagged-template shell
 ```
 
+## Syntax we deliberately did not add
+
+Some things look like missing features and are decisions.
+
+- **No `|>` operator.** In crust, `|` *is* the pipe operator. A second spelling
+  of an operator that already exists is one more thing to learn, document, and
+  disambiguate from the first — and in TypeScript host code the answer is
+  already `.pipe()`.
+- **No `[0..9]` range literal.** It collides twice: `[1,$N]` is a JSON-array
+  literal, and `[ … ]` with spaces is the shell's `test` command. Settling which
+  one wins means precedence rules over both, and every wrong verdict is silent
+  rather than loud. `range(0, 9)` is inclusive and does the job.
+
+```bash
+range(0, 9)                       # the inclusive range a [0..9] literal would be
+range(1,3) | cat > nums.txt       # … and the way to save it
+```
+
 ## Rule of thumb
 
 Write the shorthand until it stops fitting on one line or you need a type — then move that one stage into TypeScript. They mix: a registered `crust.fn` written in TypeScript is callable as a stage from the shorthand, which is usually the cleanest split.
