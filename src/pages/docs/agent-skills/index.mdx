@@ -1,12 +1,18 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Agent skills
-description: Nine Claude agent skills ship inside the crust binary — skills list to see them, skills install to drop them into .claude/skills/, grammar-lint-tested so they can't rot.
+description: Nine agent skills ship inside the crust binary — skills list to see them, skills install to write them into .agents/skills/ (linked into .claude/skills/ for Claude Code), grammar-lint-tested so they can't rot.
 ---
 
 **Goal:** teach a coding agent to drive crust well — pipelines, test suites, mocks, load runs, process supervision — without pasting docs into every prompt.
 
-Crust ships **agent skills**: `SKILL.md` guides in the format Claude Code (and other Claude-based agents) discover from a project's `.claude/skills/` directory. They're embedded in the crust binary itself, so the skills you install always match the binary you're running — no version skew between "what the agent was taught" and "what the shell actually parses".
+Crust ships **agent skills**: `SKILL.md` guides in the format coding agents pick
+up out of a project directory. They install into `.agents/skills/` — the
+cross-client location Codex, Cursor and OpenCode read — with a per-skill link at
+`.claude/skills/<name>` for Claude Code, the one mainstream host that hasn't
+adopted the standard path. The guides are embedded in the crust binary itself, so
+the skills you install always match the binary you're running — no version skew
+between "what the agent was taught" and "what the shell actually parses".
 
 ## See what's embedded
 
@@ -39,7 +45,7 @@ crust-verify-web-links
 
 All nine have a page: usage directions, worked examples, and the reasoning
 behind them. `skills install --select <name>` writes that skill into
-`./.claude/skills/` for a coding agent to read; the pages are for the human
+`./.agents/skills/` (and links it for Claude Code); the pages are for the human
 deciding which one that should be.
 
 | Skill | Teaches the agent to… | Leans on |
@@ -57,24 +63,54 @@ deciding which one that should be.
 ## Install
 
 ```bash
-crust skills install          # on a terminal: pick which ones, into ./.claude/skills
+crust skills install          # on a terminal: pick which ones, into ./.agents/skills
 crust skills install --all    # everything, no menu
 crust skills install --select crust-cli,crust-logs
-crust skills install --global # target ~/.claude/skills instead of ./.claude/
+crust skills install --global # target ~/.agents/skills instead of ./.agents/
 ```
 
 ```text
-skills: installed 9, up-to-date 0 → /app/.claude/skills
+✔ installed 9, up-to-date 0 → /app/.agents/skills
+  linked 9 into /app/.claude/skills for Claude Code
 ```
+
+Each skill is written **once**. `.agents/skills/<name>/` holds the real file and
+`.claude/skills/<name>` is a relative link to it
+(`../../.agents/skills/<name>`). One file means one edit: change it in either
+path and every agent reads the same text.
+
+| Who reads what | |
+|---|---|
+| Codex | `.agents/skills/` only |
+| Cursor, OpenCode | `.agents/skills/` plus their own vendor directory |
+| Claude Code | `.claude/skills/` — hence the links |
+
+Links are per-skill on purpose: Codex keeps its own built-ins under
+`.agents/skills/.system`, and a directory-level link would hide whatever a host
+stores there.
+
+Nothing of yours is removed on the way. A real `.claude/skills/<name>` directory
+crust did not write is left alone and named on stderr — `--force` is what
+consents to replacing it with a link — a link pointing somewhere else is left
+alone even then, and a system that cannot symlink falls back to a copy. None of
+it can fail the install: the real file under `.agents/skills/` is written first.
+
+On crust **0.2.4 and earlier** the real files went into `.claude/skills/` and
+nowhere else, so Codex, Cursor and OpenCode found no skills at all. After
+updating, `crust skills install` writes them to `.agents/skills/`; the old
+`crust-*` directories under `.claude/skills/` are not crust's, so it reports them
+and leaves them be. Delete them and re-run with `--force` to turn each into a
+link.
 
 On a terminal, install is a **menu** rather than nine files appearing: one row
 per skill, its status in the directory you are about to write to — `not
 installed`, `current`, `EDITED locally` — pre-checked to everything not already
 current. Arrows or `j`/`k` move, `space` toggles, `a` toggles all, `g` switches
-between the project and `~/.claude/skills` (recomputing every status, because a
+between the project and `~/.agents/skills` (recomputing every status, because a
 skill current in your project may be missing from your home), `f` allows
 overwriting your own edits, `enter` installs, `q` leaves everything alone.
-Cancel is exit `0`: declining is not a failure.
+Cancel is exit `0`: declining is not a failure. A menu that would write a skill
+also says it links into `.claude/skills`.
 
 Piped or non-interactive output has no menu and installs everything it is
 told to — `--all` for the same result explicitly, `--select a,b` for a subset,
@@ -82,33 +118,41 @@ and an unknown name exits `2` listing the valid ones. `crust skills install
 --help` documents the flags.
 
 When crust comes from npm, `npm install` asks once whether to install the
-skills. It never asks on CI, with piped output, for a global install, when
-crust is somebody's dependency, or once crust skills are already in the
-project — and it can never fail the install. `CRUST_NO_SKILLS=1` stops the
+skills. It never asks on CI, with piped output, for a global install, when crust
+is somebody's dependency, or once crust skills are already in the project —
+under either path, so an install from before the layout change is not a second
+question — and it can never fail the install. `CRUST_NO_SKILLS=1` stops the
 question for good.
 
-Project-level install is the default and usually the right call: the skills land next to your code, get committed, and every agent (and teammate's agent) working in the repo picks them up. `--global` suits a machine where *you* use crust everywhere but don't want to touch each repo.
+Project-level install is the default and usually the right call: the skills land
+next to your code, get committed, and every agent (and teammate's agent) working
+in the repo picks them up. `--global` suits a machine where *you* use crust
+everywhere but don't want to touch each repo.
 
-The install is **idempotent** — run it again and unchanged files are left alone:
+The install is **idempotent** — run it again and unchanged files are left alone,
+links included:
 
 ```text
-skills: installed 0, up-to-date 9 → /app/.claude/skills
+✔ 9 skills already current → /app/.agents/skills
 ```
 
-And it's **respectful of your edits**. If you've customized an installed skill locally, a plain reinstall refuses to clobber it and exits 1:
+And it's **respectful of your edits**. If you've customized an installed skill
+locally, a plain reinstall refuses to clobber it and exits 1:
 
 ```text
 skills: 1 file(s) differ from the embedded version — pass --force to overwrite:
-  /app/.claude/skills/crust-pipelines/SKILL.md
+  /app/.agents/skills/crust-pipelines/SKILL.md
 ```
 
-`skills install --force` overwrites with the embedded version. Exit codes: `0` ok (including "cancelled — nothing written"), `1` refused overwrites, `2` bad args.
+`skills install --force` overwrites with the embedded version. Exit codes: `0` ok
+(including "cancelled — nothing written"), `1` refused overwrites, `2` bad args.
 
-Typical upgrade flow — after updating crust, refresh the skills so they describe the binary you now have:
+Typical upgrade flow — after updating crust, refresh the skills so they describe
+the binary you now have:
 
 ```bash
 crust skills install --all # picks up new/changed skills; exits 1 if you have local edits
-git diff .claude/skills    # review what the new crust version taught differently
+git diff .agents/skills    # review what the new crust version taught differently
 ```
 
 ## How the grammar lint keeps them honest
