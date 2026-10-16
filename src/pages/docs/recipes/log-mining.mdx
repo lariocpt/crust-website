@@ -209,7 +209,11 @@ Real capture of the second line against a container under load:
 Wrap `JSON.parse` in a try/catch on mixed streams — real container logs
 carry startup banners between the JSON lines, and a bare parse dies on the
 first one. Note the bare-pipe rule: `cmd | crust` treats piped stdin as a
-*script*, so data pipes always go through `crust -c 'stdin | …'`.
+*script*, reads it to EOF, and only then runs — so data pipes always go
+through `crust -c 'stdin | …'`, and a shell stage inside that bare-pipe
+script sees EOF on its own stdin. `crust file.crust` does not drain stdin at
+all: its shell stages inherit your pipe and will consume it. One stdin per
+run — the program, the `stdin` source, or the shell stages, never two.
 
 ## Interactive: hold the stream, iterate on filters
 
