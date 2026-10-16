@@ -20,6 +20,17 @@ too — the ones sh already has its own version of, which is why a redirect on
 *those* is left to sh. `procs`, `range`, `load`, `read`, `tail` and friends are
 **sources**, not builtins.
 
+From a shell, the two groups split again. The tool builtins are also argv
+subcommands — `crust mock-server ./openapi.json -p4000`, `crust skills install` —
+with the same flags as the line. The session builtins are not: `cd`, `export`,
+`alias`, `unalias`, `source`, `dotenv`, `exit`, `history` and `help` change state
+a one-shot process does not have, so `crust cd /tmp` exits `2` naming the builtin
+rather than quietly doing nothing. `logs` stays line-only too, because its
+argument is the rest of the line verbatim — a `procs({...})` literal argv cannot
+carry without re-lexing it. Before both of those, each fell through to script
+mode and answered `cannot read export` at exit `127`, which in a binary printing
+its own name reads as a broken installation.
+
 The single most common mistake is writing the JavaScript form:
 
 ```text

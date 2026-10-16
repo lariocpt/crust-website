@@ -50,6 +50,27 @@ npm 12 blocks install scripts by default. A package that only fetched its binary
 
 So the fetch happens on first invocation, and the postinstall is only a fast path for environments that still permit scripts. The cost is that the very first `crust` command pays the download; the benefit is that `npm i -g` works under any script policy.
 
+## What the postinstall asks
+
+Where the postinstall does run, it asks one question: whether to install the
+[agent skills](/docs/agent-skills/) into `.agents/skills/` in the project you are
+installing into (`INIT_CWD`, not `node_modules/crust`). Answering yes hands the
+terminal to `crust skills install`, so the picker — not the installer — decides
+which skills land where. It does not ask if crust skills already sit under
+either `.agents/skills/` or the older `.claude/skills/`.
+
+It stays silent when there is nobody to ask (`CI`, or stdin/stdout not a
+terminal), when there is no project to write into (a global install, or crust
+pulled in as someone's dependency), and once crust skills are already in the
+project. `CRUST_NO_SKILLS=1` stops the question permanently. Every failure path
+resolves to *declined* with exit `0`: a postinstall that fails takes the whole
+`npm install` with it, and not wanting to answer a question is not a reason to
+refuse a package.
+
+Because the fetch is lazy, an environment that blocks install scripts never sees
+the question either — run `crust skills install` yourself once the binary has
+landed.
+
 ## Which to use
 
 **Use the curl installer** for a workstation, a CI image, or any machine where you don't want a Node toolchain involved. It is the shortest path: one file, on your PATH, no runtime dependencies.

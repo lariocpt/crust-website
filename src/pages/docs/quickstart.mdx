@@ -11,7 +11,7 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
 
 > At wide viewports the two panes sit side-by-side. On narrower screens use the `bsh` / `ts` tabs at the top of each block; your choice carries across the page.
 
-> **Reading the blocks.** A block that starts with a tool name — `mock-server ./openapi.yaml -p4000`, `skills install`, `test-fixture fixtures/*.crust.ts` — is a **crust line**, not a shell command: type it at the REPL, or as `crust -c '<line>'`. A builtin is not an argv subcommand; crust treats every positional as a script file, so `crust mock-server -p4000 …` exits **2** (`script arguments are not supported`) and `crust verify-web-links` alone exits **127** (`cannot read verify-web-links`) — neither one means crust is missing.
+> **Reading the blocks.** A block that starts with a tool name — `mock-server ./openapi.yaml -p4000`, `skills install`, `test-fixture fixtures/*.crust.ts` — is a **crust line**, and it runs from your shell too: name the tool the way you would name any other command and keep its flags, as in `crust mock-server ./openapi.yaml -p4000` or `bunx crust skills install`. The same line runs at the REPL, inside a `.crust` script, and under `crust -c`. Only the **session** builtins — `cd`, `export`, `alias`, `unalias`, `source`, `dotenv` — are REPL-only: they change state a one-shot process does not have, so `crust cd /tmp` is refused instead of quietly doing nothing.
 
 ## Install & launch
 
@@ -512,5 +512,5 @@ The line editor runs in raw mode (TTY-only). Reading from a pipe also works — 
 ## Next
 
 - **[Recipes](/docs/recipes/)** — focused, end-to-end workflows.
-- **[Agent skills](/docs/agent-skills/)** — `skills install` teaches Claude-based agents everything on this page.
+- **[Agent skills](/docs/agent-skills/)** — `skills install` writes what this page teaches into `.agents/skills/`, where Claude Code, Codex, Cursor and OpenCode pick it up.
 - **[Intro](/docs/intro/)** — back to the mental model.
