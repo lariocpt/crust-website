@@ -30,6 +30,7 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
 
   # Script mode — same parser, same fail-fast exit codes.
   # Blank lines and # comments are skipped, so a shebang works.
+  # Extra arguments are the script's positionals: $0 the path, $1.. the rest.
   crust deploy-checks.crust
   echo 'range(1,3) | filter (n => n > 1)' | crust
 
