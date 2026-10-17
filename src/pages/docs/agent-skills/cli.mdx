@@ -148,7 +148,23 @@ cannot see.
 | `crust --env-file <path> …` | one process, loaded before `init.ts` | yes |
 | `dotenv <path>` / `dotenv --append` / `dotenv status` / `dotenv clear` | the session | yes |
 | `export FOO=bar` | the session | yes |
+| `FOO=bar` — the same line without the word | the session | yes |
 | `capture NAME` stage | writes `process.env.NAME` from the stream, for **later lines** | yes |
+
+`FOO=bar` runs the code `export FOO=bar` runs, so the two cannot drift; it used
+to be `sh -c 'FOO=bar'`, which exited **0** and forgot the value. `'…'` protects
+a `$`, `"…"` expands one, a backslash protects one character (`FOO=C:\temp`
+survives), `FOO+=bar` appends, and `A=1 B=2` assigns both. Two things stay
+sh's on purpose: `FOO=bar some-command` is a *transient* prefix — the variable
+lives for that command only — and `FOO=$(cmd)` is refused, quoting or pipe
+inside it or not, because its value would have to cross back out of a child
+process. Run the command and capture it instead: `git rev-parse HEAD |
+capture SHORT_SHA`. Everywhere else a `$( … )` is still sh's, so
+`echo "$(date)"` prints the date.
+
+`export` keeps the sh spellings — bare `export` and `export -p` list the
+environment — and refuses a word it doesn't understand instead of skipping it
+silently: `export A=1 -p` used to set `A`, print nothing, and exit **0**.
 
 `--env-file` is loud about what it could not do: a missing file exits **2**, and
 the "loaded" note goes to stderr so a `-c` pipeline's stdout stays parseable. It

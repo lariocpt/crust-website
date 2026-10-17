@@ -215,6 +215,7 @@ Builtins run in-process. They dispatch when the first token matches a builtin na
   ```bash
   cd <dir>            # cd, cd -, cd ~, cd ~/path
   export FOO=bar      # set env var (multiple KEY=value pairs accepted)
+  FOO=bar             # the same line without the word — `FOO+=bar` appends
   export              # list env
   alias g=git         # define alias (also: alias g='git status')
   alias               # list aliases
