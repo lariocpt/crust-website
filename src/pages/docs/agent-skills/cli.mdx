@@ -14,19 +14,18 @@ against the binary, not inferred from its source.
 |---|---|
 | `crust` (stdin is a TTY) | Interactive REPL. |
 | `crust` (stdin is piped) | Reads **lines of crust** from stdin to EOF and runs them like a script — fail-fast, same exit codes. stdin is the *command* source here, so a shell stage inside those lines sees EOF. Want data on stdin? Use `-c`. |
-| `crust run.crust` | Script mode: blank lines and `#` comments are skipped (so a `#!/usr/bin/env crust` shebang works), lines run in order, and the **first failing line stops the file** and becomes the process exit code. A line ending in `\` continues on the next. The extension doesn't matter. |
+| `crust run.crust [args…]` | Script mode: blank lines and `#` comments are skipped (so a `#!/usr/bin/env crust` shebang works), lines run in order, and the **first failing line stops the file** and becomes the process exit code. A line ending in `\` continues on the next. The extension doesn't matter. Extra arguments are the script's **positional arguments** — `$0` is the path, `$1`…`$9` the rest, `$#` the count, `$@`/`$*` all of them joined — expanding wherever an env var does, and empty, never literal, outside script mode. A leading `--` after the path is a separator, not an argument. |
 | `crust <tool> [args…]` | A **tool builtin as a subcommand**: `crust skills install`, `crust mock-server openapi.json -p4000`, `crust test-fixture 'fixtures/*.crust.ts' -j8`. Same flags as the REPL line; `crust <tool> --help` prints them. A file that exists wins when it is the only argument, so `crust skills` runs `./skills`. The session builtins (`cd`, `export`, `alias`, `source`, `dotenv`) and `logs` are not reachable this way, and say so by name at exit `2` — a one-shot process has no session to change, and `logs` takes the rest of its line verbatim. |
 | `crust -c '<line>'` | One line. A shell stage inherits the process stdin, so `docker logs app \| crust -c 'grep ERROR'` really does grep the logs. To feed a **crust** pipeline, name the source: `docker logs -f app \| crust -c 'stdin \| grep ERROR'`. |
 | `crust --check '<line>'` | Parse without running. [Below](#--check-the-linter-and-its-edges). |
 | `crust --env-file <path> …` | Loads `.env` before *any* run mode and before `init.ts`. |
 | `crust -h` / `-V` | Usage / version, exit 0. |
 
-Three argument mistakes are refused with exit 2 rather than guessed at, because
-a silently-dropped argument is how a green CI step runs the wrong test:
-positional arguments **after a script path** (`crust x.crust extra`), `-c` given
-two lines as two arguments, and an unquoted pipeline — `-c range(1,2) extra`
-splits into three `argv` words. Several lines in one `-c` are fine: put a
-**newline inside the one argument** and they behave like a script.
+Two argument mistakes are refused with exit 2 rather than guessed at, because
+a silently-dropped argument is how a green CI step runs the wrong test: `-c`
+given two lines as two arguments, and an unquoted pipeline — `-c range(1,2)
+extra` splits into three `argv` words. Several lines in one `-c` are fine: put
+a **newline inside the one argument** and they behave like a script.
 
 That is also the rule a copied example depends on. Every bare tool name in a
 ` ```bash ` block on this site — `mock-server ./openapi.json -p4000`,
@@ -148,7 +147,23 @@ cannot see.
 | `crust --env-file <path> …` | one process, loaded before `init.ts` | yes |
 | `dotenv <path>` / `dotenv --append` / `dotenv status` / `dotenv clear` | the session | yes |
 | `export FOO=bar` | the session | yes |
+| `FOO=bar` — the same line without the word | the session | yes |
 | `capture NAME` stage | writes `process.env.NAME` from the stream, for **later lines** | yes |
+
+`FOO=bar` runs the code `export FOO=bar` runs, so the two cannot drift; it used
+to be `sh -c 'FOO=bar'`, which exited **0** and forgot the value. `'…'` protects
+a `$`, `"…"` expands one, a backslash protects one character (`FOO=C:\temp`
+survives), `FOO+=bar` appends, and `A=1 B=2` assigns both. Two things stay
+sh's on purpose: `FOO=bar some-command` is a *transient* prefix — the variable
+lives for that command only — and `FOO=$(cmd)` is refused, quoting or pipe
+inside it or not, because its value would have to cross back out of a child
+process. Run the command and capture it instead: `git rev-parse HEAD |
+capture SHORT_SHA`. Everywhere else a `$( … )` is still sh's, so
+`echo "$(date)"` prints the date.
+
+`export` keeps the sh spellings — bare `export` and `export -p` list the
+environment — and refuses a word it doesn't understand instead of skipping it
+silently: `export A=1 -p` used to set `A`, print nothing, and exit **0**.
 
 `--env-file` is loud about what it could not do: a missing file exits **2**, and
 the "loaded" note goes to stderr so a `-c` pipeline's stdout stays parseable. It
