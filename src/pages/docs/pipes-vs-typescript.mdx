@@ -41,7 +41,7 @@ The shorthand is shorter because it makes assumptions the TypeScript form spells
 - `.crust` script files and `#!/usr/bin/env crust` shebangs.
 - CI gate lines, where the whole check fits on one line and the exit code is the contract.
 
-Its real advantage is that `$VAR` chaining works across lines. Each line parses immediately before it runs, so a `capture` on one line feeds the next — the thing that makes a five-line CRUD suite readable:
+Its real advantage is that `$VAR` chaining works across lines. Each line parses immediately before it runs, so a `capture` on one line feeds the next — the thing that makes a five-line CRUD suite readable. Shell `$(…)` substitution is a shell-stage thing — a crust stage carrying one is refused before anything runs — so the route is a capture: `date +%s | capture TS`, then `GET :3000/?t=$TS`:
 
 ```crust
 {"name": "Court"} | POST $BASE/api/buildings -H "authorization: Bearer $TOKEN" | assert (r => r.status === 201) | (r => r.json()) | capture BID (b => b.building.id)

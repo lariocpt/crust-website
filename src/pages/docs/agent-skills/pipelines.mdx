@@ -46,6 +46,8 @@ Expansion happens at **parse time**, and only in specific positions: URLs, whole
 
 It does **not** expand inside lambda, `assert` or `capture` bodies — those are JavaScript, so use `process.env.VAR`. Shell stages do their own expansion.
 
+`$(…)` command substitution follows the same line: sh expands it once at the head of a shell stage, and a `$(…)` in a *crust* stage is **refused before anything runs** — capture it first (`date +%s | capture TS`), then use `$TS` downstream.
+
 SQL placeholders survive untouched: `$1` and `$2` inside a `sql "…"` string are safe, because a digit can't start an environment variable name.
 
 ### Request chaining with capture
