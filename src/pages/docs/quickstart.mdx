@@ -500,16 +500,17 @@ The line editor runs in raw mode (TTY-only). Reading from a pipe also works — 
 | Key | Action |
 |---|---|
 | `←` / `→` | Move cursor |
-| `↑` / `↓` | History navigation |
+| `↑` / `↓` | History navigation — a continued line is one entry, recalled whole |
 | `Home` / `Ctrl-A` | Start of line |
 | `End` / `Ctrl-E` | End of line |
 | `Backspace` / `Delete` | Delete left / right |
 | `Ctrl-W` / `Ctrl-U` / `Ctrl-K` | Kill word / start-of-line / end-of-line |
 | `Ctrl-L` | Clear screen |
-| `Ctrl-C` | At the prompt: clear the line. While a line runs: **cancel it** — pipeline stops, children die, prompt returns (exit 130) |
-| `Ctrl-D` | EOF — exit if line is empty |
+| `\` at end of line | Continue the line: drops to a `…` prompt and the buffer submits whole on a complete line. An unbalanced quote or an unclosed `(` continues too, so a pasted multi-line JSON literal works as-is |
+| `Ctrl-C` | At the prompt: clear the line — at a `…` continuation prompt, abort the whole pending buffer (nothing runs, nothing is stored). While a line runs: **cancel it** — pipeline stops, children die, prompt returns (exit 130) |
+| `Ctrl-D` | EOF — exit if line is empty; ignored while a line is pending at a `…` prompt |
 | `Tab` | `$PATH` complete at start-of-stage, file path elsewhere |
-| `Enter` | Submit line |
+| `Enter` | Submit line — or, when it ends in a continuation (`\`, unbalanced quote or `(`), hold it and drop to the `…` prompt |
 
 ## Next
 

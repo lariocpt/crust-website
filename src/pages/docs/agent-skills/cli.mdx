@@ -184,10 +184,11 @@ obvious guesses were wrong.
 - **History** is up/down arrows, plain text at `$XDG_DATA_HOME/crust/history`
   (default `~/.local/share/crust/history`), surviving restarts; `history` prints
   it numbered, and re-running a recalled line does not append a duplicate.
-- **`Ctrl-C`** at the prompt just clears the line. Mid-run it **cancels**:
-  children are killed, the line reports 130, and the prompt comes back so the
-  session continues. One item already produced by the source can still print
-  after the repaint — cosmetic, the source is stopped.
+- **`Ctrl-C`** at the prompt just clears the line — at a `…` continuation
+  prompt it aborts the whole pending buffer (nothing runs, nothing is stored).
+  Mid-run it **cancels**: children are killed, the line reports 130, and the
+  prompt comes back so the session continues. One item already produced by the
+  source can still print after the repaint — cosmetic, the source is stopped.
 - **`Ctrl-D`** (or `exit`) leaves; the exit code is 0 unless you `exit <code>`.
 
 To drive it non-interactively, remember crust checks for a TTY — so pace bytes
@@ -197,8 +198,15 @@ through `script`:
 ( printf 'range(1,3)\n'; sleep 1; printf '\004' ) | script -qec 'crust' /dev/null
 ```
 
-The REPL does **not** do backslash continuation: a `\` there is a character you
-typed. Continuation belongs to scripts, piped stdin and multi-line `-c`.
+The REPL **does** backslash continuation: a single trailing `\` drops to a
+`…` prompt and the buffer submits whole on a complete line. An unbalanced
+quote (`"`, `'`, `` ` ``) or an unclosed `(` continues too — a pasted
+multi-line JSON literal, or a heredoc body inside a shell stage (the join
+keeps the real newlines), survives the Enter. The assembled entry is one line:
+one history item, `↑` recalls it whole, and the join agrees character for
+character with scripts, piped stdin and multi-line `-c`. The REPL is stricter
+on one edge: a *single* trailing `\` continues there — a longer odd run (`\\\`)
+is already complete, so a mistype errors immediately instead of hanging.
 
 ## Where crust's globals exist
 
