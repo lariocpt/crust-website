@@ -506,6 +506,7 @@ The line editor runs in raw mode (TTY-only). Reading from a pipe also works — 
 | `Backspace` / `Delete` | Delete left / right |
 | `Ctrl-W` / `Ctrl-U` / `Ctrl-K` | Kill word / start-of-line / end-of-line |
 | `Ctrl-L` | Clear screen |
+| `Ctrl-R` | Incremental reverse history search on a magenta `(crust-search):` line that opens **below** the one you are typing — typing narrows the query, another `Ctrl-R` walks further back, `Enter` accepts (the match lands editable, the **next** `Enter` runs it), `Ctrl-G` / `Esc` / `Ctrl-C` cancel and restore your draft |
 | `\` at end of line | Continue the line: drops to a `…` prompt and the buffer submits whole on a complete line. An unbalanced quote or an unclosed `(` continues too, so a pasted multi-line JSON literal works as-is |
 | `Ctrl-C` | At the prompt: clear the line — at a `…` continuation prompt, abort the whole pending buffer (nothing runs, nothing is stored). While a line runs: **cancel it** — pipeline stops, children die, prompt returns (exit 130) |
 | `Ctrl-D` | EOF — exit if line is empty; ignored while a line is pending at a `…` prompt |

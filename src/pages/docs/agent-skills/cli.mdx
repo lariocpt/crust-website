@@ -184,6 +184,22 @@ obvious guesses were wrong.
 - **History** is up/down arrows, plain text at `$XDG_DATA_HOME/crust/history`
   (default `~/.local/share/crust/history`), surviving restarts; `history` prints
   it numbered, and re-running a recalled line does not append a duplicate.
+- **`Ctrl-R`** searches that history while you type, zsh-style. The line you are
+  typing stays put and a magenta `(crust-search):` line opens **below** it with
+  your query and the newest entry containing it. Typing narrows the query,
+  `Backspace` shortens it (each edit restarts at the newest match), another
+  `Ctrl-R` steps one match further back. Matching is a case-insensitive
+  substring, most recent first — not fuzzy.
+- **Ending a search:** `Enter` **accepts** — the match moves onto the prompt
+  line, still editable, and the **next** `Enter` runs it. Arrow keys, `Home` and
+  `End` accept the same way. `Ctrl-G` or `Esc` cancels and restores the
+  pre-search draft byte-exact, and so does `Ctrl-C`, which does **not** clear the
+  line while a search is live (that rule is for the normal prompt). Nothing
+  matches — empty history, nothing containing the query, or a walk past the
+  oldest entry — paints ` -- no match --` and `Enter` puts the **query itself**
+  on the line rather than running nothing. Search never rewrites the history
+  file, and at a `…` continuation prompt accepting or cancelling leaves the
+  pending line above it intact.
 - **`Ctrl-C`** at the prompt just clears the line — at a `…` continuation
   prompt it aborts the whole pending buffer (nothing runs, nothing is stored).
   Mid-run it **cancels**: children are killed, the line reports 130, and the
