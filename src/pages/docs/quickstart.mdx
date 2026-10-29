@@ -566,6 +566,13 @@ it did not stop.
 
 The line editor runs in raw mode (TTY-only). Reading from a pipe also works — it submits each `\n`-terminated line.
 
+No syntax highlighting, deliberately: a token pass over a 2000-character line
+measures 0.1 ms and colour bytes do not move the cursor, so the cost is not speed —
+it is that an *unfinished* token classifies as a shell stage, so a highlighter would
+repaint the line a different colour 4–5 times per line as you type it (and `parse()`
+throws on 3–11 % of prefixes). Highlight the file instead (`crust run.crust`) and
+validate the line with [`--check`](/docs/agent-skills/cli/#--check-the-linter-and-its-edges).
+
 | Key | Action |
 |---|---|
 | `←` / `→` | Move cursor |
