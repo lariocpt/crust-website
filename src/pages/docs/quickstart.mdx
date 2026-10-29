@@ -226,6 +226,9 @@ Builtins run in-process. They dispatch when the first token matches a builtin na
   source script.ts    # .ts/.js dynamically imported
 
   history             # list this session's lines
+  jobs [-l] [%N]      # list background jobs — see Job control below
+  fg [%N]             # bring a job to the foreground and wait for it
+  bg [%N]             # resume a stopped job in the background
   exit [code]
   help
   ```
@@ -493,6 +496,72 @@ pipeline
   .to(sink)               // terminal → calls sink(this)
 ```
 
+## Job control
+
+`cmd &` is crust's own background job — not an `sh` grandchild crust forgets about.
+It gets its own **process group** (so `kill %N` and Ctrl-Z reach a forking `sh`'s
+whole tree), stdin `/dev/null` (a background job must not steal keystrokes from the
+raw-mode editor), and output on the terminal, and it **outlives crust**. `%1`
+numbers count up per session; `%` / `%+` are the newest job; a bare number is a job
+to `fg`/`bg`/`jobs` and a **PID** to `kill`.
+
+```bash
+sleep 30 &            # [1] 4242 sleep 30 — the prompt comes straight back
+jobs                  # [1]+  Running    sleep 30
+jobs -l               # [1]+  Running    sleep 30  (pid 4242)
+fg %1                 # wait for it — its exit code becomes the line's
+bg %1                 # resume a stopped job; error if it was not stopped
+kill %1               # Sent SIGTERM to job 1 (pid 4242)
+wait %1               # the job wait — bare `wait` is the readiness stage
+```
+
+| Status | Means |
+|---|---|
+| `Running` | alive |
+| `Stopped` | suspended with Ctrl-Z |
+| `Done` | exited 0 |
+| `Exit N` | exited N — never shown as a pass |
+| `Terminated` | died from a signal — `143` = 128+SIGTERM, `130` = 128+SIGINT |
+| `Failed` | the process is gone and no exit code ever arrived |
+
+Finished jobs **stay listed** for the session, which is what lets `wait %1` still
+report the code of a job that ended minutes ago. `jobs` refuses an option it does
+not have (`crust: jobs: -x is not an option`) instead of ignoring it, because here
+the flags are the difference between two listings.
+
+**`kill %N` reports the send, not the death.** An `sh -c` that has not `exec`'d yet
+holds SIGTERM pending — measured: alive on the very next line, gone within 20 ms —
+and a job that traps the signal can outlive it, so `jobs` is what reports verified
+state. Only the `%`-operand form is crust's: `kill -9 4242` is still `sh`'s. Bare
+`wait` is a different word and stays one — the readiness stage
+(`wait :3000/health --timeout 5s`); waiting for *all* jobs is not implemented, and
+one name quietly meaning two things is not shipped either.
+
+**Ctrl-Z suspends what crust is waiting on** — a crust pipeline, a builtin, a
+`fg`/`wait` — with **SIGSTOP**, prints the job's `jobs` line and returns the prompt;
+`bg` picks a suspended pipeline back up as one unit, and Ctrl-C during `fg`/`wait`
+kills the job and returns 130.
+
+```bash
+range(1,3) | sleep 12              # Ctrl-Z, and the prompt returns:
+# ^Z
+# [2]+  Stopped    sleep 12
+```
+
+SIGSTOP rather than SIGTSTP is not a style choice: Bun's runtime ignores SIGTSTP and
+a child it spawns inherits that ignore across `exec`. So during a **foreground
+inherit-stdio child** — a bare `sleep 20`, or `vim`, where crust hands the real
+terminal over — **Ctrl-Z does nothing at all**: the `^Z` is echoed and the child
+keeps running. **Ctrl-C is the escape** (child dies, line 130). Real terminal
+handoff (`setpgid` + `tcsetpgrp`) needs FFI and is not in v0.2.
+
+In a script, `&` works too and the child is deliberately kept on the event loop:
+an `unref()`d job let Bun decide the process was finished at the next pending await,
+so the rest of the file was skipped and crust exited 0. Stopped jobs are the one
+thing that does not survive the session untouched — crust resumes them on the way
+out and says so, because SIGSTOP survives reparenting and no shell resumes a process
+it did not stop.
+
 ## Editor keybindings
 
 The line editor runs in raw mode (TTY-only). Reading from a pipe also works — it submits each `\n`-terminated line.
@@ -508,7 +577,8 @@ The line editor runs in raw mode (TTY-only). Reading from a pipe also works — 
 | `Ctrl-L` | Clear screen |
 | `Ctrl-R` | Incremental reverse history search on a magenta `(crust-search):` line that opens **below** the one you are typing — typing narrows the query, another `Ctrl-R` walks further back, `Enter` accepts (the match lands editable, the **next** `Enter` runs it), `Ctrl-G` / `Esc` / `Ctrl-C` cancel and restore your draft |
 | `\` at end of line | Continue the line: drops to a `…` prompt and the buffer submits whole on a complete line. An unbalanced quote or an unclosed `(` continues too, so a pasted multi-line JSON literal works as-is |
-| `Ctrl-C` | At the prompt: clear the line — at a `…` continuation prompt, abort the whole pending buffer (nothing runs, nothing is stored). While a line runs: **cancel it** — pipeline stops, children die, prompt returns (exit 130) |
+| `Ctrl-Z` | **Suspend what the line is waiting on** — a crust pipeline, a builtin, a `fg`/`wait` — as a job (SIGSTOP), print its `jobs` line, hand the prompt back; `bg` resumes it. During a foreground inherit-stdio child it does nothing at all (see [Job control](#job-control)) |
+| `Ctrl-C` | At the prompt: clear the line — at a `…` continuation prompt, abort the whole pending buffer (nothing runs, nothing is stored). While a line runs: **cancel it** — pipeline stops, children die, prompt returns (exit 130). During `fg`/`wait %N` it kills the job being waited on |
 | `Ctrl-D` | EOF — exit if line is empty; ignored while a line is pending at a `…` prompt |
 | `Tab` | `$PATH` complete at start-of-stage, file path elsewhere |
 | `Enter` | Submit line — or, when it ends in a continuation (`\`, unbalanced quote or `(`), hold it and drop to the `…` prompt |

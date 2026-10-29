@@ -224,6 +224,35 @@ character with scripts, piped stdin and multi-line `-c`. The REPL is stricter
 on one edge: a *single* trailing `\` continues there — a longer odd run (`\\\`)
 is already complete, so a mistype errors immediately instead of hanging.
 
+## Job control
+
+`cmd &` is crust's own background job: its own process group (so a signal reaches a
+forking `sh`'s whole tree), stdin `/dev/null`, output still on the terminal, and it
+**outlives crust**. `%1` / `%` / `%+` name jobs; a bare number names a job to
+`fg`/`bg`/`jobs` and a **PID** to `kill`.
+
+| Line | What it does |
+| --- | --- |
+| `jobs`, `jobs -l` | the table; `-l` adds `(pid …)` and the code once there is one; an unknown option is refused, not ignored |
+| `fg [spec]` | resume (if stopped) and **wait**; the job's own code becomes the line's |
+| `bg [spec]` | resume a stopped job; an error if it was not stopped |
+| `wait %1` | the job wait — **bare `wait` is the readiness stage**, `wait :3000/health` |
+| `kill %1`, `kill -9 %1` | prints `Sent SIGTERM to job 1 (pid …)` — the send, not the death. `kill -9 4242` is sh's |
+
+Statuses are `Running`, `Stopped`, `Done`, `Exit N`, `Terminated` (128+signal),
+`Failed` (gone with no code). Finished jobs stay listed for the session, which is how
+`wait %1` still reports the code of a job that ended minutes ago.
+
+Do not assume a Ctrl-Z works wherever a shell's would. It suspends a crust pipeline,
+a builtin, or a `fg`/`wait` (SIGSTOP → `[2]+  Stopped    sleep 12`, prompt back, `bg`
+resumes the pipeline as one unit; Ctrl-C during `fg`/`wait` kills the job, 130) — but
+**nothing happens during a foreground inherit-stdio child** (`vim`, a bare
+`sleep 20`): the runtime ignores SIGTSTP and children inherit that ignore across
+`exec`, so the `^Z` echoes and the child keeps running. Ctrl-C is the escape there.
+Running jobs are left alone at exit because outliving the session is what `&` means;
+**stopped** ones are resumed with a notice, since a stopped orphan is leaked until
+reboot.
+
 ## Where crust's globals exist
 
 `GET`, `range`, `parallel`, `load`, `procs`, `$` and `crust.*` — plus everything
