@@ -204,10 +204,10 @@ Now the prompt has two namespaced stages:
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Same two clients used directly from a .ts script
-  import "crust"; // loads init.ts which created the two SQL clients
-  // (or, if you'd rather keep state out of init.ts, just construct
-  //  them at the top of your script):
+  // Same two clients used directly from a .ts script. There is no
+  // importable "crust" module to pull init.ts's clients from — the npm
+  // package is a bin-only launcher, and the binary loads init.ts itself
+  // at session start — so construct the clients in the script:
   const primary = new Bun.SQL(process.env.PRIMARY_URL!);
   const replica = new Bun.SQL(process.env.REPLICA_URL!);
 
@@ -225,7 +225,7 @@ Now the prompt has two namespaced stages:
 
 ## Other engines via npm clients
 
-Anything with an npm-shipped client fits the same `crust.fn` mold. Register the wrapper in `init.ts`; use the same client directly from a `.ts` script.
+Anything with an npm-shipped client fits the same `crust.fn` mold. Register the wrapper in `init.ts`; use the same client directly from a `.ts` script. Install the driver where the file that imports it lives — for the `init.ts` below, that's `~/.config/crust/` (or your project dir for a per-project init): `bun add duckdb-async @clickhouse/client`.
 
 <CodeSwitcher>
   <Fragment slot="bash">
@@ -242,7 +242,10 @@ Anything with an npm-shipped client fits the same `crust.fn` mold. Register the 
   const duck = await Database.create(":memory:");
   crust.fn("dql", async (q: string) => (await duck.all(q)) as unknown[]);
 
-  // ClickHouse
+  // ClickHouse — same install. If a driver ships plain CJS that doesn't
+  // expose these names, take the default import and destructure:
+  //   import clickhouse from "@clickhouse/client";
+  //   const { createClient } = clickhouse;
   import { createClient } from "@clickhouse/client";
   const ch = createClient({ url: process.env.CLICKHOUSE_URL! });
   crust.fn("chql", async (q: string) => {
