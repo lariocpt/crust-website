@@ -216,7 +216,7 @@ A `crust.fn` works in both positions. As a **source** (first stage), the item sl
 ### Async, errors, and the lifetime model
 
 - **Async handlers are fine.** `crust.fn("foo", async (item) => …)` awaits naturally inside the pipeline.
-- **Throwing fails the pipeline** at the offending item, with the index preserved. Downstream sinks (`stats`, `collect`) reject; non-terminal stages propagate.
+- **Throwing fails the pipeline** at the offending item, with the thrown error's message verbatim: the line prints `crust: <message>` and exits 1. No index is preserved, so if you need to identify which item threw, put it in the error yourself (``throw new Error(`items[${i}]: bad`)``). Downstream sinks (`stats`, `collect`) reject; non-terminal stages propagate.
 - **Handlers persist for the session.** Re-registering the same name in `init.ts` later replaces the prior binding. Globally auto-dispatched names that clash with a `crust.fn` registration lose to the explicit registration.
 
 ## Override precedence
