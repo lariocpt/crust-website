@@ -163,15 +163,21 @@ bounded crawl can no longer pass as a clean one:
 verify-web-links "$PREVIEW_URL" --fixtures site/**/*.meta.crust.ts
 ```
 
-Or combine the builtins into a full pre-deploy gate. Each is its own `crust -c`
-because a builtin runs in-process: `mock-server … &` would hand `sh` a name it
-does not have, and inside crust the `&` is refused outright.
+Or combine the builtins into a full pre-deploy gate. The last line assumes the
+built site is already running: build the site and serve its output — `astro
+preview`, a static file server, or your pipeline's preview step — on the port
+`$PREVIEW_URL` points at, the same premise as the example above. The gate never
+starts that site itself; if nothing is listening on `$PREVIEW_URL`'s port, the
+line fails on sitemap discovery rather than reporting the pages it was asked to
+check. Each builtin line is its own `crust -c` because a builtin runs in-process:
+`mock-server … &` would hand `sh` a name it does not have, and inside crust the
+`&` is refused outright.
 
 ```bash
 crust -c 'mock-server ./openapi.yaml -p4000' &
 crust -c 'wait :4000/pets --timeout 20s'
 crust -c 'test-fixture fixtures/*.crust.ts'
-crust -c 'verify-web-links http://localhost:3000 --fixtures site/*.meta.crust.ts'
+crust -c 'verify-web-links "$PREVIEW_URL" --fixtures site/*.meta.crust.ts'
 ```
 
 ## Exit codes
