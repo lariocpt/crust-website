@@ -48,7 +48,7 @@ It does **not** expand inside lambda, `assert` or `capture` bodies — those are
 
 `$(…)` command substitution follows the same line: sh expands it once at the head of a shell stage, and a `$(…)` in a *crust* stage is **refused before anything runs** — capture it first (`date +%s | capture TS`), then use `$TS` downstream.
 
-SQL placeholders survive untouched: `$1` and `$2` inside a `sql "…"` string are safe, because a digit can't start an environment variable name.
+In a script, the **positional arguments** expand in those same positions — so `$1` inside a `sql "…"` string is the script's `$1`, not a SQL bind: the bound-parameter placeholder is `?`, and the trailing quoted args DO env-expand: `sql "… WHERE id = ?" "$MY_ID"`. Outside a script the positionals are empty, never literal.
 
 ### Request chaining with capture
 
