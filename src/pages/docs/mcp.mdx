@@ -1,0 +1,123 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: MCP server
+description: crust mcp speaks the Model Context Protocol over stdio, so an MCP-capable agent (OpenCode, Claude Code, Codex, Cursor) drives crust directly — every capability a first-class tool, mock servers and log sessions held open across calls, and a nonzero run that is always an error result, never a false pass.
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+**Goal:** let an AI agent run your test stack without a shell. `crust mcp` is a
+[Model Context Protocol](https://modelcontextprotocol.io) server over stdio —
+JSON-RPC 2.0, one message per line. The agent's host spawns it once and calls
+`tools/list`, which returns every crust capability as a direct tool: run a
+line, lint a line, run suites, boot a mock server, supervise dev processes,
+mine logs. No meta-tool wrapping a CLI in the way; the agent sees
+`crust_load_run` and calls it.
+
+## Install & register
+
+<InstallBlock />
+
+Then register the server with your agent host — the shape is the same across
+OpenCode, Claude Code, Codex and Cursor:
+
+```json
+{ "mcpServers": { "crust": { "command": "crust", "args": ["mcp"] } } }
+```
+
+`crust mcp` is a whole-process **mode**, not a REPL builtin: it takes over
+stdin and stdout for the connection, which only makes sense as a process the
+MCP host owns. A `mcp` line typed at a crust session refuses with that reason
+instead of sh's misleading `command not found`. `crust mcp --help` prints the
+same contract from the terminal.
+
+## Verify by hand
+
+The transport is just lines on stdin, so `printf | crust mcp` is a real smoke
+test — initialize, then ask for the tool list:
+
+```bash
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | crust mcp
+```
+
+One JSON-RPC frame per line back. `initialize` echoes a protocol version from
+the set this server speaks (`2025-06-18`, `2025-03-26`, `2024-11-05`); a
+version it does not implement is answered with the newest one rather than a
+promise the server cannot keep.
+
+## Two execution planes
+
+What persists between tool calls is the whole design question, and the tool
+names answer it.
+
+**One-shot tools** run a fresh crust child per call and return its captured
+streams. Real exit codes, killable process groups, and `cwd`/`env` that apply
+**per call and never carry over** — every description says so, because a child
+has no session to keep:
+
+| Tool | The capability it exposes |
+|---|---|
+| `crust_run_line` | any crust line — the full grammar: pipelines, verbs, `sql`, `procs()`, asserts |
+| `crust_check_line` | `--check` as a linter: parses without running, so generated crust is validated before it costs a run |
+| `crust_test_fixture` | `.crust.ts` fixtures — matchers, JUnit/JSON reports, `-j`/`-n` stress runs |
+| `crust_test_pipes` | `.pipes` suites with `-s` setup context |
+| `crust_gen_fixtures` | OpenAPI spec → negative-case matrix + CRUD flow fixtures |
+| `crust_verify_web_links` | sitemap crawl: links, anchors, redirects, OG/meta, JSON output |
+| `crust_load_run` | paced load: `load … \| parallel … \| … \| stats \| assert`, thresholds as assert composition |
+
+**Lifecycle tools** run *in-process* and stay **held across calls** for as
+long as the host keeps the server open — a mock started in one call is still
+serving three calls later:
+
+| Tool | Holds / does |
+|---|---|
+| `crust_mock_server_start` | boots an OpenAPI mock (example-first, `stateful`, `state:` persistence, `validate`, `proxy` conformance audits). `port: 0` default — OS-assigned, collision-free; **use the returned `url`** |
+| `crust_mock_server_stop` / `_list` / `_violations` | teardown, inventory, and the proxy-mode findings: what a real API does that its own `openapi.json` forbids |
+| `crust_procs_start` / `_stop` | supervises a dev stack — per-proc env, `after:` ordering, `ready:` probes, restart backoff, process-group kill |
+| `crust_logs_open` / `_query` / `_close` | a held tail / shell command / `procs({…})` source behind a ring buffer; queries are ordinary pipeline fragments over the buffered past, then a bounded live window (`live_ms`). Procs sessions share the same query tool — items are `{proc, stream, line}` objects |
+
+A typical sequence: `crust_procs_start` the dev stack → gate with
+`crust_run_line` on `wait :3000/health` → `crust_load_run` with an `assert`
+threshold → `crust_logs_query` the survivors → `crust_procs_stop`.
+
+## Honest failure, ported to MCP
+
+The repo's first rule survives the protocol boundary:
+
+- A nonzero child exit, a killed timeout, a failed `assert`, a mock validation
+  error — all are **`isError` results** carrying the child's own exit code and
+  output verbatim. The tool never overrules the line's answer, and never
+  green-lights a run that measured nothing: an `empty` load is refused, and a
+  zero-match query answers with an explicit **"zero items"** — zero is an
+  answer, not silence.
+- **Output is capped** per stream (256 KB, tail-kept) and truncation is always
+  announced, never silent.
+- **Lifetime is the host's.** stdin EOF, SIGINT or SIGTERM tear down every
+  held job — mock ports closed, `procs` groups SIGTERM→SIGKILL'd whole —
+  before the process exits, and a teardown still unwinding past 10s says so
+  rather than claiming children are gone.
+- **One call runs at a time.** The interrupt bus is process-global; two live
+  windows draining at once would fire each other's children, so the server
+  serializes.
+
+## Configuration notes
+
+- **`cwd` matters for lifecycle tools.** A relative spec path or seed file
+  resolves against the **server's** working directory — set the host's
+  `cwd` to your project root, or pass absolute paths.
+- **`init.ts` loads normally** — registered functions and config apply to
+  fragments run by `crust_logs_query`. A chatty config is harmless: at
+  startup `process.stdout` is redirected to stderr before the config loads,
+  so the protocol stream stays pure.
+- **`--env-file`** is honored at startup if your host passes it in `args`.
+
+## Related
+
+- [crust-mcp skill](/docs/agent-skills/mcp/) — what the installed skill
+  teaches an agent about picking tools.
+- [Agent skills](/docs/agent-skills/) — the ten skills embedded in the binary.
+- [Quickstart](/docs/quickstart/) — the same capabilities as shell lines,
+  for humans.
+- [Mock server recipe](/docs/recipes/mock-server/), [Stress
+  testing](/docs/recipes/stress-testing/), [Log mining](/docs/recipes/log-mining/)
+  — the workflows the tools expose.

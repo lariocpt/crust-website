@@ -18,6 +18,7 @@ The installer puts the `crust` binary on your PATH and copies a starter config t
 
 - **[Intro](/docs/intro/)** — why bash and TypeScript live on the same pipeline, and what that actually buys you.
 - **[Quickstart](/docs/quickstart/)** — every command crust ships, with the shell-line form and the TS-API form side by side.
+- **[MCP server](/docs/mcp/)** — let an MCP-capable agent drive crust directly: every capability a first-class tool, mock servers and log sessions held open across calls.
 - **[npm packages](/docs/npm-packages/)** — turn any globally-installed npm package into a pipeline stage, plus `crust.fn` for the harder cases.
 - **[DB drivers](/docs/db-drivers/)** — point the `sql` builtin at Postgres, MySQL, SQLite, or anything you can wire up via `init.ts`.
 - **[Recipes](/docs/recipes/)** — workflows you can lift directly: stress runs, OpenAPI mocks, smoke tests, generated negative fixtures, log mining.
@@ -34,3 +35,4 @@ The installer puts the `crust` binary on your PATH and copies a starter config t
 | Configuration | `~/.config/crust/init.ts` — register aliases, `crust.fn(...)` stages, lifecycle hooks |
 | One-liner mode | `crust -c '<pipeline>'` from any shell — multi-line strings are fail-fast |
 | Script mode | `crust file.crust`, `#!/usr/bin/env crust` shebang, or lines piped on stdin — comments skipped, fail-fast exit codes |
+| MCP server | `crust mcp` — every capability as a JSON-RPC tool over stdio, for MCP-capable agents (OpenCode, Claude Code, Codex, Cursor) |

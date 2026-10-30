@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Agent skills
-description: Nine agent skills ship inside the crust binary — skills list to see them, skills install to write them into .agents/skills/ (linked into .claude/skills/ for Claude Code), grammar-lint-tested so they can't rot.
+description: Ten agent skills ship inside the crust binary — skills list to see them, skills install to write them into .agents/skills/ (linked into .claude/skills/ for Claude Code), grammar-lint-tested so they can't rot.
 ---
 
 **Goal:** teach a coding agent to drive crust well — pipelines, test suites, mocks, load runs, process supervision — without pasting docs into every prompt.
@@ -31,6 +31,8 @@ crust-load-testing
     Load-test and soak-test HTTP services with crust — the load rate source, parallel workers, timed verbs, stats windows, CI threshold gates via assert, and baseline comparison with stats --out. Use for smoke-load, latency percentiles, rps checks, performance regression gates in CI, or "is this endpoint fast/degrading" questions.
 crust-logs
     Search a live log stream with crust's `logs` session — it holds a tail/procs/shell source open, keeps a ring buffer, and re-runs every typed pipeline fragment over the buffered past and then the live stream; `json on` parses NDJSON at query time, `search` counts the buffer instantly, `buffer N` resizes without restarting. Use when tailing dev services or containers, when a grep workflow keeps losing history, or when you want to widen a filter over logs you already saw.
+crust-mcp
+    Drive crust directly from an MCP-capable agent (OpenCode, Claude Code, Codex, Cursor) instead of a shell — `crust mcp` exposes every capability as a first-class tool: run_line, check_line, test_fixture/test_pipes, gen_fixtures, load_run, verify_web_links, plus lifecycle mock servers, supervised procs, and buffered log sessions that stay open across calls. Use when configuring crust as an MCP server, choosing which crust_* tool fits a task, or reasoning about what persists between tool calls and what does not.
 crust-mock-server
     Mock an API from an OpenAPI spec with crust mock-server — example-first responses, stateful CRUD (in-memory or persisted to sqlite/postgres with --state, seedable with --seed), request validation with 422s, and validation-proxy mode that checks a REAL API's spec conformance. Use for mocking backends, frontend dev without a server, contract/conformance testing, or checking whether an API matches its openapi.json.
 crust-pipelines
@@ -41,9 +43,9 @@ crust-verify-web-links
     Crawl a site from its sitemap and verify every link, #anchor, redirect chain, OG image and meta tag against .crust.ts fixtures. `--base-url` auto-discovers the sitemap (robots.txt → /sitemap.xml → /sitemap-index.xml), `--site-map-url` takes a local sitemap so you can check build output, `--fixtures` diffs meta. Use when link or SEO health must gate a deploy, when a built site should be checked before publishing, or when OG/meta regressions need catching.
 ```
 
-## The nine skills
+## The ten skills
 
-All nine have a page: usage directions, worked examples, and the reasoning
+All ten have a page: usage directions, worked examples, and the reasoning
 behind them. `skills install --select <name>` writes that skill into
 `./.agents/skills/` (and links it for Claude Code); the pages are for the human
 deciding which one that should be.
@@ -59,6 +61,7 @@ deciding which one that should be.
 | **[crust-builtins](/docs/agent-skills/builtins/)** | Tell the two namespaces apart — tool builtins that need a line of their own vs registered functions used as stages — and get `fn(item, ...args)` right: what the item means per function, why `bundle(5)` is a shell syntax error, why a lambda says `salt is not defined`, and how to reach crypto and FS from one. | [Quickstart](/docs/quickstart/) |
 | **[crust-logs](/docs/agent-skills/logs/)** | Run the `logs` session: one held source behind a ring buffer, every typed fragment run over the buffered past and *then* live (so side effects fire twice), `json on` for NDJSON and the silent zero it prevents, `search` and `buffer N`, and which item type each source yields. | [Log mining](/docs/recipes/log-mining/), [One dev tail](/docs/recipes/dev-tail/) |
 | **[crust-verify-web-links](/docs/agent-skills/verify-web-links/)** | Crawl a sitemap and check links, `#anchors`, redirect chains and OG images, plus meta against `.meta.crust.ts` fixtures: sitemap auto-discovery, `--site-map-url` against local build output, and the three ways a green run means nothing was checked. | [Verify web links](/docs/recipes/verify-web-links/) |
+| **[crust-mcp](/docs/agent-skills/mcp/)** | Drive crust over the Model Context Protocol: one-shot tools that run a fresh child per call (`cwd`/`env` never persist) vs lifecycle tools that hold a mock, a `procs` runner or a `logs` session open across calls; validate with `check_line` before spending a run, and read `isError` results — verbatim output, explicit zeros — as evidence. | [MCP server](/docs/mcp/) |
 
 ## Install
 
@@ -70,8 +73,8 @@ crust skills install --global # target ~/.agents/skills instead of ./.agents/
 ```
 
 ```text
-✔ installed 9, up-to-date 0 → /app/.agents/skills
-  linked 9 into /app/.claude/skills for Claude Code
+✔ installed 10, up-to-date 0 → /app/.agents/skills
+  linked 10 into /app/.claude/skills for Claude Code
 ```
 
 Each skill is written **once**. `.agents/skills/<name>/` holds the real file and
@@ -102,7 +105,7 @@ updating, `crust skills install` writes them to `.agents/skills/`; the old
 and leaves them be. Delete them and re-run with `--force` to turn each into a
 link.
 
-On a terminal, install is a **menu** rather than nine files appearing: one row
+On a terminal, install is a **menu** rather than ten files appearing: one row
 per skill, its status in the directory you are about to write to — `not
 installed`, `current`, `EDITED locally` — pre-checked to everything not already
 current. Arrows or `j`/`k` move, `space` toggles, `a` toggles all, `g` switches
@@ -133,7 +136,7 @@ The install is **idempotent** — run it again and unchanged files are left alon
 links included:
 
 ```text
-✔ 9 skills already current → /app/.agents/skills
+✔ 10 skills already current → /app/.agents/skills
 ```
 
 And it's **respectful of your edits**. If you've customized an installed skill
