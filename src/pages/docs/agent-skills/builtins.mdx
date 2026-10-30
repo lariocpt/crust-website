@@ -228,7 +228,7 @@ Tools that produce a file themselves have a flag for it (`-o` / `--outfile` /
 - **`base64 in.ts` encodes the path text**, not the file — crust's own function
   answers first. Measured on a file containing `alpha\nbeta\n`:
   ```text
-  base64 in.ts          → YjY0aW4udHh0          "in.ts"
+  base64 in.ts          → aW4udHM=              "in.ts"
   read in.ts | base64   → YWxwaGEKYmV0YQo=      "alpha\nbeta\n"   = /usr/bin/base64
   lines in.ts | base64  → YWxwaGE= / YmV0YQ==   once per line
   ```
