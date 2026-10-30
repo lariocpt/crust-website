@@ -34,10 +34,10 @@ Crust scans `~/.bun/install/global` once per session (cached at `~/.cache/crust/
 | Has `"crust": { "stage": "exportName" }` | Uses that named export instead of `default`. |
 | No callable export | Skipped with a clear error if you call it: *"wrap it explicitly with crust.fn() in init.ts"*. |
 
-Inside the pipeline the package is invoked as `fn(item, ...staticArgs)`:
+The calling convention depends on the position:
 
-- **Transform position** (`... | pkg arg1 arg2`): `pkg(currentItem, "arg1", "arg2")`.
-- **Source position** (`pkg arg1 | ...`): `pkg(undefined, "arg1")` — the first arg is `undefined`.
+- **Transform position** (`... | pkg arg1 arg2`): `pkg(currentItem, "arg1", "arg2")` — the item is what the upstream stage yielded.
+- **Source position** (`pkg arg1 | ...`): `pkg("arg1")` — the item slot is absent, so the handler's parameters are the static args directly. A zero-arg source (`listUsers | …`) simply calls `fn()`.
 
 Packages are **lazily imported** — the first time you actually use one in a pipeline, that's when crust does the dynamic `import(...)`. Browsing your globals has no startup cost.
 
@@ -182,7 +182,7 @@ crust.fn("wrap", (item: unknown, l: string, r: string) => `${l}${item}${r}`);
 
 ### Source-position vs transform-position
 
-A `crust.fn` works in both positions. As a **source** (first stage), the first arg is `undefined`. If your function returns an array, crust flattens it into per-item items downstream — the same behavior that makes `sql "..."` row-streaming.
+A `crust.fn` works in both positions. As a **source** (first stage), the item slot is absent — the handler receives the static args only, and a zero-arg source simply calls `fn()`. If your function returns an array, crust flattens it into per-item items downstream — the same behavior that makes `sql "..."` row-streaming.
 
 <CodeSwitcher>
   <Fragment slot="bash">
