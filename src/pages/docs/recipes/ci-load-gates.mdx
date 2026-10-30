@@ -160,7 +160,7 @@ load 10m 50/s | parallel 25 | GET :3000/health | stats --every 30 \
   | assert (s => !s.final  || s.p95 < 200)
 ```
 
-Windows may be allowed a looser bound than the final cumulative number — a GC pause is a window-sized event, a slow *average* is a regression. Both guards are also correct without `--every` (the plain summary carries neither key, so the threshold applies unguarded).
+Windows may be allowed a looser bound than the final cumulative number — a GC pause is a window-sized event, a slow *average* is a regression. But a guard needs the object it guards: without `--every` the line emits one plain summary carrying neither `window` nor `final`, so both `!s.window` and `!s.final` are true, both `||`s short-circuit, and neither threshold ever runs — the line exits 0 at any p95 (a silent no-op gate, a false pass). Drop the guard when you drop `--every`.
 
 ## The trap: `expect` before `stats` hides the summary
 

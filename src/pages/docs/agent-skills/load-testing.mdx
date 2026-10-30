@@ -74,7 +74,7 @@ Soak with fail-fast windows — `--every N` emits `{window: k, …}` deltas and 
 load 60s 25/s | parallel 25 | GET :3000/health | stats --every 5 | assert (s => !s.window || s.p95 < 400)
 ```
 
-`!s.window ||` scopes a threshold to window objects, `!s.final ||` to the final summary. Both are also correct without `--every`.
+`!s.window ||` scopes a threshold to window objects, `!s.final ||` to the final summary — and a guard needs the object it guards. Without `--every` the plain summary carries neither key, so `!s.window` is true and `||` short-circuits: the threshold never runs — `stats | assert (s => !s.window || s.p95 < 0.1)` exits 0 with p95 at 4.2. Drop the guard when you drop `--every`.
 
 ## Warmup
 
