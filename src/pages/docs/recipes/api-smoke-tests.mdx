@@ -93,7 +93,7 @@ sql "SELECT count(*)::int AS c FROM things WHERE name = 'Court'" | assert (r => 
 {"priority": 5} | PATCH $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | (r => r.json()) | assert (b => b.thing.priority === 5)
 DELETE $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 204
 GET $BASE/api/things/$THING_ID -H "authorization: Bearer $TOKEN" | expect 404
-sql "SELECT count(*)::int AS c FROM things WHERE id = $1" "$THING_ID" | assert (r => r.c === 0)
+sql "SELECT count(*)::int AS c FROM things WHERE id = ?" "$THING_ID" | assert (r => r.c === 0)
 
 # negative block — the API must REJECT these
 GET $BASE/api/things | expect 401
@@ -122,7 +122,7 @@ test-pipes 'tests/**/*.pipes' -b -t5000
 Three behaviors that keep suites honest:
 
 - `assert (x => expr)` fails on falsy — **and on an empty upstream**. A `SELECT` that matches zero rows streams zero items, so a per-item predicate would never run; `assert` turns that into a failure ("no items reached") instead of a silent pass.
-- Env expansion covers URLs, `-H` values, JSON literals and `sql` args (SQL positionals `$1`/`$2` survive — a digit can't start an env var name). Lambda and `assert` bodies are JS — use `process.env.TOKEN` there, not `$TOKEN`.
+- Env expansion covers URLs, `-H` values, JSON literals and `sql` args (a `$1` inside a `sql` string survives *env* expansion — a digit can't start an env var name — but it is still the script's **positional**, so it expands into the SQL as text or to nothing; bind with `?`). Lambda and `assert` bodies are JS — use `process.env.TOKEN` there, not `$TOKEN`.
 - Any http line can carry a **per-request `--timeout <dur>`** (`ms`/`s`/`m`): `GET $BASE/api/things/$THING_ID --timeout 2s | expect 200`. A hung endpoint fails *that line* with `GET <url>: timed out after 2000ms` instead of hanging the run — sharper than the runner's own `--timeout <ms>` flag, which is a per-line wall clock in integer ms. Typo'd `--flags` on http stages are loud errors, so a misspelling can't silently drop the bound.
 
 ### The setup module
@@ -342,7 +342,7 @@ When the query is constant — no upstream interpolation needed — call `sql` a
 
   # Transform with static params — last item passes through, params are constant
   range(0, 0) \
-    | sql "select count(*) as n from users where email like $1" "%@example.com" \
+    | sql "select count(*) as n from users where email like ?" "%@example.com" \
     | (rows => rows[0].n)
   ```
   </Fragment>

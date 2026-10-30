@@ -43,7 +43,7 @@ The path of least resistance. Bun ships a native Postgres client.
   sql "select id, email from users limit 5" | (r => r.email)
 
   # Parameterized
-  sql "select * from users where tier = $1" "pro" | (r => r.id)
+  sql "select * from users where tier = ?" "pro" | (r => r.id)
   ```
   </Fragment>
   <Fragment slot="ts">
@@ -117,7 +117,7 @@ Same builtin, different URL scheme. Requires a Bun build with MySQL support — 
   </Fragment>
 </CodeSwitcher>
 
-> **Placeholders differ by engine.** Postgres uses `$1`, `$2`, … and MySQL uses `?`. When you write SQL by hand with the `sql "..."` builtin, match the engine's style. The `Bun.sql` template tag handles this for you automatically.
+> **Write `?` in a crust line; use the engine's own style in TypeScript.** Inside `sql "…"` the placeholder is always `?`: crust rewrites it to `$1`, `$2`, … for `postgres://`/`postgresql://` URLs and leaves `sqlite://` and `mysql://` queries byte-for-byte as written, because `?` is already their placeholder. Writing `$1` there is not a bind at all — `$N` in a registered-fn argument is the script's **positional argument**, expanded into the SQL as text before the driver sees it (measured: `sql "SELECT '$1' AS v"` with argument `X` returns `{"v":"X"}`, and with `O'Hara` it dies on `unterminated quoted string`; the `?` bind returns `{"v":"O'Hara"}` intact). In TypeScript you are calling the driver, so use its native style — `Bun.sql`'s template tag converts for you.
 
 ## SQLite (via `bun:sqlite`)
 
