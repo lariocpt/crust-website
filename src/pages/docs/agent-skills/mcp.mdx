@@ -1,0 +1,86 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: crust-mcp
+description: The crust-mcp skill — teaches an MCP-capable agent to drive crust through the protocol — which of the sixteen crust_* tools fits a task, what persists between calls and what never does, and why every nonzero run comes back as an error result with verbatim output.
+---
+
+**`crust-mcp`** is the tenth embedded skill. It teaches an agent what it can't
+guess from tool names alone: the two execution planes, what survives a call
+boundary, and how to read a failure. The human-facing half — installing and
+configuring `crust mcp` — is on [MCP server](/docs/mcp/); this page is what
+the skill puts inside the agent.
+
+## The plane question comes first
+
+Every task starts with one fork: **run-and-return** or **hold-open**.
+
+One-shot tools (`crust_run_line`, `crust_check_line`, `crust_test_fixture`,
+`crust_test_pipes`, `crust_gen_fixtures`, `crust_verify_web_links`,
+`crust_load_run`) spawn a fresh crust child per call. The skill's warning
+here is the one an agent gets wrong by instinct: **there is no session**.
+`cwd` and `env` apply to one call and vanish — `cd`-ing in one call does not
+move the next, and an exported variable must be passed explicitly every time:
+
+```json
+{ "name": "crust_run_line", "arguments": { "line": "cat config.json | json get port", "cwd": "/srv/app" } }
+```
+
+Lifecycle tools (`crust_mock_server_*`, `crust_procs_start/stop`,
+`crust_logs_open/query/close`) are held by the server process across calls —
+a mock boot in call three answers a request in call nine — and **every held
+job dies when the server exits**, so the skill pushes agents to stop tools by
+id and never to assume a session outlives the conversation.
+
+## Validate before you spend a run
+
+`crust_check_line` is `--check` over the wire: it parses without running, so
+generated crust — a fixture an agent just wrote, a pipeline it just composed
+— can be linted before files and ports need to exist. The skill's standard
+loop is check, then run.
+
+## Reading failures correctly
+
+Over MCP, crust keeps its contract: a nonzero exit, a killed timeout, a failed
+`assert`, a validation error — all arrive as `isError` results with the
+child's verbatim output. The skill tells the agent to trust `isError` and read
+the text as evidence, not to re-run hoping for different colors. Two honest
+answers that read like failures and aren't:
+
+- **"zero items"** — the query ran and matched nothing; zero is an answer.
+- **announced caps** — 256 KB of output per stream, tail-kept, truncation
+  always stated. An announced truncation is not a corrupted run.
+
+## Picking the lifecycle tool
+
+- A dev stack goes to `crust_procs_start` — per-proc env, `after:` ordering,
+  `ready:` probes — and its merged stream is queried with
+  `crust_logs_query`, items being `{proc, stream, line}` objects. Readiness
+  is gated in a follow-up `crust_run_line` with `wait :3000/health`, not by
+  sleeping.
+- A tail or container log goes to `crust_logs_open`; iterating on filters is
+  then free — fragments run over the buffered past first, live only for the
+  `live_ms` asked, `json: true` parsing NDJSON items before the fragment.
+- A mock goes to `crust_mock_server_start` with the default `port: 0`
+  (OS-assigned) and the **returned url** is used verbatim. `proxy: "<upstream>"`
+  turns the mock into a conformance audit of a real API; findings come back
+  from `crust_mock_server_violations`.
+
+## Traps
+
+- **Session state does not exist between one-shot calls.** No `cd`, no
+  `export`, no aliases carried — pass `cwd`/`env` per call.
+- **Relative paths in lifecycle tools resolve against the server's cwd**, not
+  the agent's idea of "here". Absolute paths, or set the host's `cwd`.
+- **One call runs at a time.** A long `crust_verify_web_links` crawl blocks
+  the queue — raise `timeout_ms`, and don't call it "in parallel" with
+  anything.
+- **A procs `stop` past 10s can report "teardown still in flight"** — a child
+  ignoring SIGTERM is being killed; it is not a successful stop pretending.
+
+## Related
+
+- [MCP server](/docs/mcp/) — installing and configuring the server itself.
+- [Agent skills](/docs/agent-skills/) — the ten skills and how install works.
+- [crust-procs](/docs/agent-skills/procs/) and
+  [crust-logs](/docs/agent-skills/logs/) — the semantics the lifecycle tools
+  wrap.
