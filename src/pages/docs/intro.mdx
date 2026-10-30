@@ -36,9 +36,11 @@ The same pipeline can be expressed either at the **shell line** or as a **`.ts` 
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // The same pipelines as a .ts script — bun script.ts
-  // (or pasted into `bun repl`; crust's globals are auto-loaded
-  //  when the script imports from "crust").
+  // The same pipelines as a .ts script — run it through crust:
+  //   crust -c 'source ./script.ts'
+  // crust installs its globals wherever IT starts its runtime (-c, the REPL,
+  // stdin, .crust files, init.ts, any .ts/.js file crust loads); a plain
+  // `bun script.ts` never starts crust, so it gets none of them.
 
   // 1.
   await range(0, 10000)

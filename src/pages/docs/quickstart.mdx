@@ -41,8 +41,10 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Any .ts file run with bun has access to crust's globals
-  // bun script.ts
+  // crust's globals live in crust's runtime — run the file through crust:
+  //   crust -c 'source ./script.ts'      (or load it from init.ts)
+  // A bare `bun script.ts` throws ReferenceError — nothing is injected
+  // into a plain Bun process that never started crust.
   await range(0, 99)
     .pipe(parallel(20, () => fetch("http://localhost:3000/health")))
     .pipe(expectStage(200))
