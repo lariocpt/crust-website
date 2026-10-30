@@ -11,13 +11,15 @@ Two ways to add new pipeline stages from the npm ecosystem:
 1. **Auto-dispatch from `bun add -g`** — any global package whose default export is a function becomes a stage automatically.
 2. **`crust.fn(name, handler)` in `init.ts`** — for packages whose shape doesn't fit the calling convention (method-dispatched libs like chalk, anything that needs setup) and for ad-hoc helpers you wrote yourself.
 
-Everything documented here works the same way in the **REPL**, in **one-liner mode** (`crust -c '…'`), and in a **`.ts` file you run with `bun`**. Every shell-line example below is paired with its TypeScript-API equivalent for when you'd rather work in a `.ts` script.
+Everything documented here works the same way in the **REPL**, in **one-liner mode** (`crust -c '…'`), and in a **`.ts` script**. Every shell-line example below is paired with its TypeScript-API equivalent for when you'd rather work in a `.ts` script.
+
+One difference from the shell lines: the `Pipeline`, `glob`, `range`, and `read` names are crust runtime globals — they exist inside crust, not in plain `bun`. A `.ts` script that uses them runs from a crust session via `source script.ts`; a script that only imports npm packages (like the toolbox in [Common patterns](#common-patterns) below) runs fine with `bun script.ts`.
 
 ## Auto-dispatch from globals
 
 ```bash
 bun add -g slugify
-crust -c 'echo "Hello World" | slugify'      # → hello-world
+crust -c 'echo "Hello World" | slugify'      # → Hello-World
 ```
 
 That's the whole loop. Install a package globally, restart your shell line, and the package name is now a pipeline stage. No `init.ts` edit needed.
@@ -47,7 +49,7 @@ Packages are **lazily imported** — the first time you actually use one in a pi
   <Fragment slot="bash">
   ```bash
   # bun add -g slugify
-  echo "Hello World" | slugify                         # → hello-world
+  echo "Hello World" | slugify                         # → Hello-World
 
   # bun add -g dedent
   echo $'    line one\n    line two' | dedent
@@ -58,15 +60,17 @@ Packages are **lazily imported** — the first time you actually use one in a pi
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // bun run script.ts — direct ESM import, no crust runtime needed
+  // script.ts — run it from a crust session: source script.ts
+  // (bare Pipeline / glob resolve inside the crust runtime; a plain
+  //  `bun script.ts` throws ReferenceError on the first Pipeline use)
   import slugify from "slugify";
+  import dedent from "dedent";
 
   await Pipeline.of(["Hello World"])
     .pipe((s) => slugify(s))         // → "Hello-World"
     .collect();
 
   // With dedent
-  import dedent from "dedent";
   console.log(dedent`
     line one
     line two
@@ -106,7 +110,8 @@ Now you have first-class `red` / `green` / `bold` stages:
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // From a .ts file, just import and use directly
+  // chalk is a plain import — but Pipeline and read are crust runtime
+  // globals, so source this from a session too: source script.ts
   import chalk from "chalk";
 
   await Pipeline.of(["ok"])
@@ -163,7 +168,8 @@ crust.fn("wrap", (item: unknown, l: string, r: string) => `${l}${item}${r}`);
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Same logic inline, no crust.fn needed when you're already in TS
+  // Same logic inline, no crust.fn needed when you're already in TS —
+  // source this from a session too (Pipeline and range are runtime globals)
   await Pipeline.of(["hi"])
     .pipe((item) => `[${item}]`)
     .collect();
@@ -194,7 +200,8 @@ A `crust.fn` works in both positions. As a **source** (first stage), the item sl
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Equivalent pattern using Pipeline.of + an async iterable
+  // Equivalent pattern using Pipeline.of + an async iterable —
+  // source this from a session too (Pipeline is a runtime global)
   async function* listUsers() {
     for (const u of await db.users()) yield u.email;
   }
@@ -268,7 +275,7 @@ Now your prompt has a small toolbox:
   <Fragment slot="bash">
   ```bash
   echo "Build Failed" | red | bold
-  echo "My Cool Title" | slug                   # → my-cool-title
+  echo "My Cool Title" | slug                   # → My-Cool-Title
   echo $'const  x =   1' | fmt                  # → const x = 1;
   envkeys | grep AWS_
   ```
