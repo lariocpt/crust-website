@@ -43,10 +43,12 @@ The same pipeline can be expressed either at the **shell line** or as a **`.ts` 
   // `bun script.ts` never starts crust, so it gets none of them.
 
   // 1.
-  await range(0, 10000)
+  const [summary] = await range(0, 10000)
     .pipe(parallel(100, () => fetch("http://localhost:3000/health")))
     .pipe(expectStage(200))
-    .to(stats());
+    .pipe(statsStage())
+    .collect();
+  console.log(summary);
 
   // 2.
   await readAll("fixtures/*.json")
