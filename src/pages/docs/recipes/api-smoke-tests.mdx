@@ -332,7 +332,7 @@ In a `.pipes` suite the same cross-check is cleaner — `capture` the id, then a
 
 ### Using the `sql` builtin directly
 
-When the query is constant — no upstream interpolation needed — call `sql` as a stage. It uses Bun's `$DATABASE_URL` client and **streams one row per item** as a source. As a transform, the static args become `(query, ...params)`; the upstream item is *not* auto-bound, so reach for a lambda when you need to inject a value from the stream.
+When the query is constant — no upstream interpolation needed — call `sql` as a stage. It uses Bun's `$DATABASE_URL` client and **streams one row per item** as a source. As a transform, the static args become `(query, ...params)`; when the line declares no params, the upstream item **binds as the first parameter** (an explicitly declared parameter still wins) — use a lambda when you need to control the value you inject.
 
 <CodeSwitcher>
   <Fragment slot="bash">
@@ -340,17 +340,21 @@ When the query is constant — no upstream interpolation needed — call `sql` a
   # Source — every recent user becomes one item downstream
   sql "select id, email from users order by id desc limit 5" | (r => r.email)
 
-  # Transform with static params — last item passes through, params are constant
+  # Transform with static params — the declared param wins over the item,
+  # and the rows stream one per item downstream
   range(0, 0) \
     | sql "select count(*) as n from users where email like ?" "%@example.com" \
-    | (rows => rows[0].n)
+    | (r => r.n)
   ```
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Source equivalent
-  const emails = await Pipeline.of([])
-    .pipe(() => Bun.sql`select id, email from users order by id desc limit 5`)
+  // Source equivalent — await the query so the rows arrive as an array;
+  // Pipeline.of(array) then streams one row per item
+  const emails = await Pipeline.of(
+    await Bun.sql`select id, email from users order by id desc limit 5`,
+  )
+    .pipe((r) => r.email)
     .collect();
 
   // Or use Bun.sql directly when you're already in TS:
