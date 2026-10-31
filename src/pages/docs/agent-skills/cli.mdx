@@ -135,7 +135,8 @@ wording through unchanged — there is no third line — so grep for
 `shell stage does not parse`.
 
 The runtime runs the same preflight before executing any stage of a **mixed**
-line (as of PR #60; in 0.2.4 only `--check` has it): a shell stage whose text
+line (as of PR #60, which gave `--check` the preflight first and the exec path
+second; the 0.2.4 release had it on neither): a shell stage whose text
 does not parse exits 2 with the message above, and nothing has run. Measured
 pre-fix, `touch f | base64 | head -(` exited 2 and `f` existed — the error was
 in stage 3, and stage 1 ran first. A pure-shell line is one `sh -c`, which sh
