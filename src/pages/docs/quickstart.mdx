@@ -6,6 +6,7 @@ description: Every crust command, shell-line and TypeScript-API side by side.
 
 import CodeSwitcher from '../../components/CodeSwitcher.astro';
 import InstallBlock from '../../components/InstallBlock.astro';
+import { NPM_INSTALL_COMMAND, NPM_PAGE_URL } from '../../lib/site';
 
 A tour of crust's surface. Each block shows the **shell line** alongside the equivalent **TypeScript API** call — pick the one that fits the file you're in.
 
@@ -16,6 +17,10 @@ A tour of crust's surface. Each block shows the **shell line** alongside the equ
 ## Install & launch
 
 <InstallBlock />
+
+Prefer npm? <code>{NPM_INSTALL_COMMAND}</code> — a ~4KB launcher that verifies the
+published sha256 before the binary ever runs. Every release is listed on
+[the package's page]({NPM_PAGE_URL}).
 
 <CodeSwitcher>
   <Fragment slot="bash">

@@ -5,7 +5,7 @@ description: Why the npm package is a 4KB launcher rather than the tool itself �
 ---
 
 import InstallBlock from '../../components/InstallBlock.astro';
-import { isPublic, NPM_INSTALL_COMMAND, CLONE_COMMAND } from '../../lib/site';
+import { isPublic, NPM_INSTALL_COMMAND, CLONE_COMMAND, NPM_PAGE_URL } from '../../lib/site';
 
 crust ships as **one compiled binary**. The npm package is not a second implementation of it — it is a small launcher that fetches and verifies that same binary.
 
@@ -24,6 +24,9 @@ Both channels end up running byte-identical code. The difference is how it gets 
 | Needs Node/npm | no | yes |
 | Needs Bun | no | no |
 | Fetches on first run | no | yes — the binary |
+
+Every version, release and the launcher's source are listed on
+[the package's page]({NPM_PAGE_URL}).
 
 ## Why the npm package isn't the binary
 

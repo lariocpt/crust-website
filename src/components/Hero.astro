@@ -1,6 +1,6 @@
 ---
 import InstallBlock from './InstallBlock.astro';
-import { href } from '../lib/site';
+import { NPM_INSTALL_COMMAND, NPM_PAGE_URL, href } from '../lib/site';
 ---
 
 <section class="hero">
@@ -21,6 +21,12 @@ import { href } from '../lib/site';
 
 		<div class="install-wrap">
 			<InstallBlock />
+			<p class="npm-alt">
+				or from npm —
+				<a class="cmd" href={NPM_PAGE_URL} target="_blank" rel="noreferrer"><code>{NPM_INSTALL_COMMAND}</code></a>
+				·
+				<a href={NPM_PAGE_URL} target="_blank" rel="noreferrer">npm package page</a>
+			</p>
 		</div>
 
 		<div class="ctas">
@@ -92,6 +98,35 @@ import { href } from '../lib/site';
 	.install-wrap {
 		max-width: 720px;
 		margin-top: 0.5rem;
+	}
+	/* The npm channel under the primary one-liner: the command and the
+	"package page" label both open the package page (per plane), so a user
+	who just wants `npm i -g` lands on the page with every release listed. */
+	.npm-alt {
+		margin: 0.6rem 0 0;
+		font-size: 0.95rem;
+		color: var(--fg-muted);
+	}
+	.npm-alt code {
+		font-family: var(--font-mono);
+		font-size: inherit;
+		color: inherit;
+	}
+	.npm-alt .cmd {
+		font-size: 0.9em;
+		color: var(--accent);
+		text-decoration: none;
+		border-bottom: 1px dashed var(--border);
+	}
+	.npm-alt .cmd:hover {
+		color: var(--accent-2);
+		border-bottom-color: var(--accent);
+	}
+	.npm-alt a:not(.cmd) {
+		color: var(--fg);
+	}
+	.npm-alt a:not(.cmd):hover {
+		color: var(--accent);
 	}
 	.ctas {
 		display: flex;

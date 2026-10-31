@@ -1,5 +1,5 @@
 ---
-import { href, isPublic, REPO_URL } from '../lib/site';
+import { href, isPublic, NPM_PAGE_URL, REPO_URL } from '../lib/site';
 
 const year = new Date().getFullYear();
 ---
@@ -16,6 +16,7 @@ const year = new Date().getFullYear();
 			<a href={href('/docs/quickstart/')}>Quickstart</a>
 			<a href={href('/docs/recipes/')}>Recipes</a>
 			{isPublic && <a href={REPO_URL}>GitHub</a>}
+			<a href={NPM_PAGE_URL} target="_blank" rel="noreferrer">npm</a>
 		</nav>
 		<small class="copy">© {year} · MIT licensed</small>
 	</div>

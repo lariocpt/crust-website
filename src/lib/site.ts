@@ -77,6 +77,17 @@ export const NPM_INSTALL_COMMAND = isPublic
 	: 'npm i -g crust --registry https://npm.in.drlario.org';
 
 /**
+ * The npm channel's package page, per plane. Like REPO_URL above, it is
+ * plane-aware rather than unconditional: the npmjs page is a public artifact,
+ * and the default (LAN) build must not emit public-only references (see the
+ * Gate note at the top). The LAN registry serves its package page at
+ * /<name>, so the LAN build links there instead.
+ */
+export const NPM_PAGE_URL = isPublic
+	? 'https://www.npmjs.com/package/@lariocpt/crust'
+	: 'https://npm.in.drlario.org/crust';
+
+/**
  * Build-from-source one-liner. Public-mode ONLY — it embeds REPO_URL, and the LAN
  * Gate fails the build on any github.com string in dist/.
  */
