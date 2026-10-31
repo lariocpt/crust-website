@@ -533,34 +533,15 @@ readiness instead of `sleep` — `:4000/pets` because a spec-driven mock has no
 root route, so a bare `wait :4000` would probe `/`, get a 404, and time out on a
 server that is perfectly up (`wait port:4000` is the path-free alternative).
 
-<CodeSwitcher>
-  <Fragment slot="bash">
-  ```bash
-  # Smoke-test every fixture against the mock
-  crust -c 'mock-server ./openapi.yaml -p4000' &
-  crust -c 'wait :4000/pets --timeout 20s'
-  crust -c 'test-fixture fixtures/*.crust.ts -o report.md'
+```bash
+# Smoke-test every fixture against the mock
+crust -c 'mock-server ./openapi.yaml -p4000' &
+crust -c 'wait :4000/pets --timeout 20s'
+crust -c 'test-fixture fixtures/*.crust.ts -o report.md'
 
-  # Burn-in: 10k requests across 100 workers
-  crust -c 'range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats'
-  ```
-  </Fragment>
-  <Fragment slot="ts">
-  ```ts
-  // Start the mock, run a burn-in, tear it down
-  import { startMockServer } from "crust/mockServer";
-
-  const mock = await startMockServer({ swagger: "./openapi.yaml", port: 4000 });
-
-  await range(0, 9999)
-    .pipe(parallel(100, () => fetch("http://localhost:4000/pets")))
-    .pipe(expectStage(200))
-    .to(stats());
-
-  await mock.stop();
-  ```
-  </Fragment>
-</CodeSwitcher>
+# Burn-in: 10k requests across 100 workers
+crust -c 'range(0, 9999) | parallel 100 | GET :4000/pets | expect 200 | stats'
+```
 
 ## Limits
 
