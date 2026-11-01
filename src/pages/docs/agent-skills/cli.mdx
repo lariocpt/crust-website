@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: crust-cli
-description: How to invoke crust and how to read what it answers — the four run modes, what each exit code actually means (0/1/2/127/130, and why there is no 124), --check as a linter including what it cannot catch, env files, and the REPL's real keybindings.
+description: How to invoke crust and how to read what it answers — the four run modes, what each exit code actually means (0/1/2/127/130, and why there is no 124), --check as a linter including what it cannot catch, env files, the REPL's real keybindings, and --build-info as the release-comparison primitive.
 ---
 
 **`crust-cli`** is the skill for the two questions CI always asks: *did that
@@ -20,6 +20,7 @@ against the binary, not inferred from its source.
 | `crust --check '<line>'` | Parse without running. [Below](#--check-the-linter-and-its-edges). |
 | `crust --env-file <path> …` | Loads `.env` before *any* run mode and before `init.ts`. |
 | `crust -h` / `-V` | Usage / version, exit 0. |
+| `crust --build-info` | Build provenance as JSON on stdout (exit 0, nothing on stderr) — and exactly four keys, `{ "version", "gitCommit", "bun", "platform" }`: the key set is the whole output, so a reader can rely on the shape. `gitCommit` is the commit the tag resolves to, stamped by the release workflow on the GitHub/npmjs plane; it is `"dev"` on builds from an unstamped tree — dev, local, and the LAN/Jenkins plane, whose version string already carries the short sha. Listed in `--help` beside `-V`. [Comparing releases](#comparing-releases) uses it. |
 
 Two argument mistakes are refused with exit 2 rather than guessed at, because
 a silently-dropped argument is how a green CI step runs the wrong test: `-c`
@@ -36,6 +37,30 @@ the shell spelling was the mistake to avoid — every positional was a script
 path, so that line exited 2 and a lone tool name exited **127**, which looks
 exactly like a missing binary. If `crust <tool>` reports `cannot read <tool>`,
 that is your crust, not a missing install.
+
+### Comparing releases
+
+A tag is a release, and a docs-only tag still ships a fresh ~93 MB binary —
+v0.3.1 over v0.3.0 changed nothing but prose, and proving the two releases were
+code-identical used to mean a manual A/B of the two cached copies. As of
+v0.3.2 every binary answers for itself, and the npm launcher caches one
+directory per version, so the comparison is one `--build-info` per release:
+
+```bash
+~/.cache/crust/<verA>-linux-x64/crust --build-info
+~/.cache/crust/<verB>-linux-x64/crust --build-info
+git diff vA..vB   # in a checkout of the crust repo
+```
+
+Equal `version` + `gitCommit` is the same source tree — the stamp is the commit
+the tag resolves to — and `git diff vA..vB` shows exactly what (or nothing)
+changed: that is how a docs-only release proves itself as one, in one command
+per binary. The curl channel installs one binary into `~/.local/bin`, so to
+keep two releases side by side, install the older one into its own directory
+with the installer's own options (`--version <verA> --dir /opt/<verA>`) and the
+same two `--build-info` commands compare them. Builds from an unstamped tree —
+dev, local, and the LAN/Jenkins plane, whose version string already carries the
+short sha — report `gitCommit: "dev"`.
 
 ## Exit codes
 

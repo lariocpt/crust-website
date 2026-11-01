@@ -96,6 +96,8 @@ CRUST_SOURCE=github npm i -g @lariocpt/crust
 
 The public package resolves GitHub Releases. The mechanism exists because crust is also published to a private LAN artifact plane, and one launcher serves both — the download-and-verify path is shared, so the integrity guarantee doesn't depend on which plane you're on.
 
+The install manifest records the package version it was written for, so after a version bump a stale one is a cache miss — re-resolve, re-verify sha256, rewrite — instead of shadowing the new release until a human deletes the file by hand. Manifests from older launcher releases lack the field and are accepted on a core-version match, so upgrading costs at most one re-verification.
+
 ## Fixtures cannot import npm packages
 
 One consequence of shipping a compiled binary is worth knowing before you write fixtures: **the binary cannot resolve npm modules at runtime.**
