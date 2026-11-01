@@ -12,7 +12,7 @@ const isActive = (prefix: string) =>
 <header class="site-header">
 	<div class="container bar">
 		<a href={href('/')} class="brand" aria-label="Crust home">
-			<span class="mark" aria-hidden="true">🥖</span>
+			<img src={href('/crust-icon-512.png')} alt="" aria-hidden="true" width="22" height="22" class="mark" />
 			<span class="wordmark">crust</span>
 		</a>
 		<nav class="nav" aria-label="Primary">
@@ -61,8 +61,9 @@ const isActive = (prefix: string) =>
 		color: var(--accent);
 	}
 	.mark {
-		font-size: 1.35rem;
-		line-height: 1;
+		display: block;
+		width: 1.4rem;
+		height: 1.4rem;
 	}
 	.wordmark {
 		font-family: var(--font-mono);
