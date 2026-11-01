@@ -82,7 +82,7 @@ Two constraints worth knowing before writing fixtures:
 gen-fixtures ./openapi.json
 ```
 
-Output is deterministic and byte-stable — check it in, regenerate, review the `git diff`. It emits:
+Output is deterministic and byte-stable — check it in, regenerate, review the `git diff`. Since **0.3.2** the emitter also reads the nearest `biome.json` and emits the `.crust.ts` fixtures and `flows.gen.setup.ts` in its indent, so a formatter-gated repo ends the gen with a biome pass over the output directory and a second regen lands byte-identical; [the recipe covers the full treatment](/docs/recipes/gen-fixtures/). It emits:
 
 - **A negative matrix per operation** — 401 no-credentials, 403 authenticated-outsider on scope-gated paths, 404 unknown-id, and a 400 matrix per body field: missing required, wrong type, bad enum, too short or long, below or above numeric bounds, pattern violations, unexpected extra property.
 - **CRUD flows** — create → read → update → delete → read-after-delete-404, chained with `capture` and run by `test-pipes` with no extra flags.

@@ -87,6 +87,12 @@ export const NPM_PAGE_URL = isPublic
 	? 'https://www.npmjs.com/package/@lariocpt/crust'
 	: 'https://npm.in.drlario.org/crust';
 
+// In .mdx pages use it as an explicit anchor (<a href={NPM_PAGE_URL}>…</a>),
+// not as a markdown link destination: [text]({NPM_PAGE_URL}) is not evaluated
+// by the MDX compiler and renders the literal "{NPM_PAGE_URL}" as the href —
+// the pages-links job 404'd on the result since c8c0ec5, and check-links flags
+// it as a dead internal link.
+
 /**
  * Build-from-source one-liner. Public-mode ONLY — it embeds REPO_URL, and the LAN
  * Gate fails the build on any github.com string in dist/.
