@@ -13,7 +13,9 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '20'))
     }
     environment {
-        // crust is private and LAN-only, so the canonical host is the internal vhost. This is
+        // This job builds the LAN mirror. crust's public face is GitHub Pages
+        // (.github/workflows/pages.yml, PUBLIC_SITE=1), so the canonical host
+        // here is the internal vhost. This is
         // the ONLY consumer of Astro.site (src/layouts/Layout.astro does
         // `new URL(Astro.url.pathname, Astro.site)`), and an undefined value throws — so the
         // build fails loudly rather than emitting wrong canonical tags.
@@ -68,9 +70,11 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    # crust is not public. A build that leaks the repo URL or the not-yet-real
-                    # public domain into the served HTML is a defect, so fail on it here rather
-                    # than discovering it in a browser.
+                    # This dist is the LAN mirror: the dual-mode switch in src/lib/site.ts
+                    # keeps every public-only reference opt-in (PUBLIC_SITE=1 builds the
+                    # Pages variant), so a LAN build that leaks the repo URL or the
+                    # not-yet-real public domain into the served HTML is a defect — fail
+                    # here rather than discovering it in a browser.
                     if grep -rlE 'github\\.com|larioborges-timbuk2|crust\\.sh' dist; then
                         echo "FAIL: public references found in built output (see files above)"
                         exit 1
