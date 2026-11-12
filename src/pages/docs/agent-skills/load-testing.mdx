@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: crust-load-testing
-description: Paced load runs with real percentiles and CI-ready exit codes — the load source, parallel sizing by Little's law, drop accounting, and the honesty guarantees that stop a zero-request run reporting success.
+description: Paced load runs with real percentiles and CI-ready exit codes — the load source, parallel sizing by Little's law, drop accounting, the status-first report-preserving gate, and the honesty guarantees that stop a zero-request run reporting success.
 ---
 
 **`crust-load-testing`** teaches an agent to produce load numbers that are safe to quote — and to recognise the conditions under which they aren't.
@@ -34,6 +34,8 @@ POST load — ticks are `{n, phase, scheduledAt, lagMs}`, so bodies build from t
 load 10s 20/s | (t => ({name: "user" + t.n})) | parallel 8 | POST :3000/users | expect 2xx | stats
 ```
 
+> **Report availability:** `expect` throws at drain, so an `expect` placed before `stats` that fails prevents the summary from ever being emitted — the shapes above illustrate syntax, not CI reporting. When the summary or the report must survive a status failure, put `stats` (and `stats --out …`) before the gates and gate status on the summary instead — [CI gates](#ci-gates) below is the primary pattern.
+
 **Rate and concurrency are independent knobs.** Little's law sizes the pool: `N ≥ rate × p99-in-seconds`.
 
 ## The honesty guarantees
@@ -54,11 +56,13 @@ load: target 3000 ticks — emitted 2868, dropped 132 … achieved 95.6/s
 
 ## CI gates
 
-Thresholds are just `assert` composition — one per threshold, so the failure names the predicate:
+The primary shape gates **status first, then performance**, with `stats` (and the report) upstream of every gate so the summary survives a failing gate:
 
 ```crust
-load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200) | assert (s => s.rps > 80)
+load 30s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (s => Object.keys(s.status).every(k => k.startsWith("2"))) | assert (s => s.timedOut === 0) | assert (s => s.redirectRefused === 0) | assert (s => s.p95 < 200) | assert (s => s.rps > 80)
 ```
+
+One assert per threshold, so the failure names the predicate and prints the summary. What the shape buys you: `stats` **reports, it does not gate** — the `timedOut`/`redirectRefused` tallies describe outcomes, and the `assert`s after it are the only thing that fails a run; **latency-only gates are satisfiable by fast 500s**, so status is gated first; the `--out` report **survives a failing gate** (flushed after every window, before each yield) while an `expect` placed before `stats` prevents the summary from ever existing; a **zero-request run** is tagged `empty: true` and refused, so "measured nothing" never passes; and **`rps` is the achieved rate** — a drop report on stderr means the target was not sustained, never a pass.
 
 Baseline comparison — `--out` writes a versioned artifact and an async assert reads the previous one back:
 
