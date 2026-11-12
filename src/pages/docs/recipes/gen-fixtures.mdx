@@ -17,6 +17,7 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   gen-fixtures ./openapi.json
   # generated 23 cases across 1 files -> /app/tests/gen
   # generated 1 CRUD flows -> /app/tests/gen/flows/flows.gen.pipes
+  # gen-fixtures: manifest written — /app/tests/gen/gen-manifest.json
 
   # Run the negative matrix like any other fixtures
   test-fixture 'tests/gen/*.gen.crust.ts' -j8 -t5000
@@ -311,6 +312,54 @@ test-pipes 'tests/**/*.pipes' -b -t5000
 ```
 
 Each `.pipes` file is hermetic (env snapshotted/restored per file), so generated flows can't leak `$GEN_*` vars into your hand-written suites — and since the spec can't know your table names, add `sql`-assert lines in a hand-written `.pipes` file when you want the DB-level counterpart of a flow.
+
+## gen-manifest.json — the review artifact
+
+The **last write** of every successful generation is `gen-manifest.json` inside `--out`: every generated case with its expectation's **provenance** — `contract:paths.<path>.<method>.responses.<code>` when the spec documents that status for the operation (every case family today is gated on a documented response; crust never assumes a status the contract is silent on), `convention:<name>` if a status were ever assumed by rule rather than read from the spec — plus every skip (dropped cases, skipped flows, `flowOverrides.skip`) with the same reason stdout shows, and every unsupported operation with what crust could not derive. Prerequisites are NAMES (`auth`, `scope:member`, `resource:<param>`), never values from your setup module.
+
+The file is deterministic — no timestamps; the spec is identified by a sha256 of its content — so the same spec + crust version regenerate it byte-identically (it rides along in the regen-and-diff workflow: no spec change, empty diff). And it states its own limit in every copy: **it records generation only, nothing in it was executed or verified.** It lives inside `--out`, so the directory wipe takes it with it, and a failed generation never leaves one behind. Review it before running anything the generator produced — it answers "why does this case expect 400?" without re-reading the generator.
+
+```json
+{
+  "crustGenManifest": 1,
+  "crustVersion": "0.3.5",
+  "spec": {
+    "path": "./openapi.json",
+    "sha256": "23fd5c835f8d81db86b800bd3b1f55ca242334e3bad91b3058c046931254acf5"
+  },
+  "note": "Records generation only. Nothing here was executed or verified.",
+  "cases": [
+    {
+      "operation": "POST /api/things/{thingId}/widgets",
+      "case": "POST /api/things/{thingId}/widgets as non-member -> 403",
+      "mutation": "as non-member",
+      "expectStatus": 403,
+      "expectationSource": "contract:paths./api/things/{thingId}/widgets.post.responses.403",
+      "prerequisites": ["auth", "scope:outsider", "resource:thingId"]
+    },
+    {
+      "operation": "POST /api/things/{thingId}/widgets",
+      "case": "POST /api/things/{thingId}/widgets invalid enum for 'kind' -> 400",
+      "mutation": "invalid enum for 'kind'",
+      "expectStatus": 400,
+      "expectationSource": "contract:paths./api/things/{thingId}/widgets.post.responses.400",
+      "prerequisites": ["auth", "scope:member", "resource:thingId"]
+    }
+  ],
+  "skipped": [
+    {
+      "operation": "/api/users/{userId}/posts",
+      "reason": "nested path params {userId}"
+    }
+  ],
+  "unsupported": [
+    {
+      "operation": "POST /api/silent",
+      "assumption": "the spec documents no 400 for this operation, so no validation matrix was derived — crust does not assume 400 where the contract is silent"
+    }
+  ]
+}
+```
 
 ## The setup module contract
 
