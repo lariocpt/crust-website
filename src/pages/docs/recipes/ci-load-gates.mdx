@@ -105,6 +105,7 @@ One property makes this CI-safe: **the artifact is written before the summary re
 | An `expect` found mismatched statuses at drain | `1` |
 | Multi-line `-c` script: any line fails | that line's code — **fail-fast**, later lines never run |
 | A stage's lambda **threw** — including under `parallel N` | `1` |
+| A timed request failed (`--timeout` budget, `--redirect error` refusal) | `0` — it is a **record**; gate it (below) |
 | A spawned shell stage exited nonzero (`\| tee bad/path`, `\| false`) | that code |
 | `assert` was handed an **empty** `stats` summary (0 items measured) | `1` |
 | Builtin runners (`test-pipes`, `test-fixture`): bad args / no files | `2` |
@@ -113,6 +114,23 @@ A gate that measured **nothing** is not a pass. `stats` over an empty stream is
 tagged `empty: true` and `assert` refuses it — `{count: 0, p95: 0}` satisfies
 `s => s.p95 < 200`, so a run whose glob matched nothing used to go green. A bare
 `… | stats` with no assertion still prints the tagged summary and exits 0.
+
+**Timed failures are records, not exits.** A request that hits its `--timeout`
+budget or refuses a redirect with `--redirect error` yields a
+`{status: 0, timedOut: true}` / `{status: 0, redirectRefused: true}` record —
+the load-mode contract, same as network errors — and the summary carries the
+tallies `timedOut` and `redirectRefused`, always present (0 on a clean run).
+**Exit 0 alone is never request success in load mode** — gate the tallies:
+
+```bash
+range(0, 99) | parallel 10 | GET :3000/old --redirect error | expect 200
+range(0, 99) | parallel 10 | GET :3000/old --redirect error | stats \
+  | assert (s => s.redirectRefused === 0) | assert (s => s.timedOut === 0)
+```
+
+The `expect 200` fails because the refusal record's status is 0; the summary
+asserts fail on the named tally, so a moved or hanging endpoint cannot pass a
+suite by being counted as a silent zero.
 
 Percentiles come from a fixed histogram: constant memory on a multi-hour soak,
 accurate to within a bucket (0.1ms below 100ms, 1ms below 1s), and reported as
