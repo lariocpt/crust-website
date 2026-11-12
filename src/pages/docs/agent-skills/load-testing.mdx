@@ -50,7 +50,7 @@ load: target 3000 ticks — emitted 2868, dropped 132 … achieved 95.6/s
 
   A drop report means the target rate was **not** sustained. Raise `parallel N` or lower the rate before quoting percentiles.
 
-- Percentiles come only from timed records and include body download. With `--every`, a slow request lands in the window it *finished* in.
+- Percentiles come only from timed records and include body download. With `--every`, a slow request lands in the window it *finished* in. The full record contract — body draining, `status: 0` network errors, `timedOut`/`redirectRefused` flags — is in [HTTP result shapes](/docs/http-result-shapes/).
 
 ## CI gates
 
