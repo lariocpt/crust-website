@@ -94,10 +94,11 @@ What crust cannot attribute it does not emit: a case whose expected 400 could on
 
 ## The workflow it recommends
 
-1. `gen-fixtures` against the spec, run the matrix and flows, fix what fails.
-2. Hand-write `.pipes` for business flows a spec can't express — SQL checks, multi-resource invariants.
-3. Reach for `.crust.ts` only when a case needs real code: crypto, files, custom matchers.
+1. Review the contract first — the [contract-review checklist](/docs/contract-review/) is the full gate for expected statuses, isolation, and execution scope before and around generation.
+2. `gen-fixtures` against the spec, run the matrix and flows, fix what fails.
+3. Hand-write `.pipes` for business flows a spec can't express — SQL checks, multi-resource invariants.
+4. Reach for `.crust.ts` only when a case needs real code: crypto, files, custom matchers.
 
 ## Related
 
-- [API smoke tests](/docs/recipes/api-smoke-tests/) · [Generated negative fixtures](/docs/recipes/gen-fixtures/)
+- [API smoke tests](/docs/recipes/api-smoke-tests/) · [Generated negative fixtures](/docs/recipes/gen-fixtures/) · [Contract review](/docs/contract-review/)
