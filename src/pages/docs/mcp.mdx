@@ -25,6 +25,29 @@ OpenCode, Claude Code, Codex and Cursor:
 { "mcpServers": { "crust": { "command": "crust", "args": ["mcp"] } } }
 ```
 
+VS Code uses a different schema (`.vscode/mcp.json` per workspace, or the
+user-level MCP settings) — the `mcpServers` shape above silently fails there
+("command is required", or the server just never appears):
+
+```json
+{
+  "servers": {
+    "crust": { "type": "stdio", "command": "/ABS/PATH/to/crust", "args": ["mcp"] }
+  }
+}
+```
+
+Two verified traps: `"command"` must be an **absolute path** — a GUI-launched
+VS Code does not inherit the shell's `PATH`, so bare `"crust"` dies
+`spawn crust ENOENT` when the launcher lives outside the default lookup dirs.
+And VS Code's MCP support ships inside the Chat/Copilot Chat extension —
+Code - OSS / VSCodium has no MCP host without an extension (Cline, Roo Code or
+Continue each carry their own MCP settings).
+
+Grammar lands automatically: the one-shot tools pass line/fixture text to a
+fresh crust child untouched, so anything the lexer accepts is an MCP tool
+call the moment the installed binary has it — no MCP-side change per feature.
+
 `crust mcp` is a whole-process **mode**, not a REPL builtin: it takes over
 stdin and stdout for the connection, which only makes sense as a process the
 MCP host owns. A `mcp` line typed at a crust session refuses with that reason

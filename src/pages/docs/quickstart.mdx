@@ -75,6 +75,7 @@ A source is anything that produces a `Pipeline<T>`. Globs, ranges, file tails, s
   tail -F api.log worker.log        # follow N files at once
   GET https://api.example.com/v1    # Pipeline<Response>
   GET :3000/health                  # localhost shorthand
+  GET :3000/old --redirect manual   # 3xx yielded as-is — expect 301 can assert it
   read fixtures/*.json              # whole-file contents, one item per file
   {"name": "Court"}                 # JSON literal — one parsed item
   load 30s 100/s                    # paced ticks: 100/s for 30s (load runs)
@@ -142,7 +143,9 @@ Stream-in, stream-out stages. Shell pipes, TS lambdas, and per-item HTTP all wor
   </Fragment>
 </CodeSwitcher>
 
-Every http verb takes repeatable `-H "Key: value"` flags, and URLs, `-H` values, and JSON literals are `$VAR`/`${VAR}` env-expanded (lambda bodies are **not** — they're JS, use `process.env`). The `:port/path` localhost shorthand works for all verbs, and `parallel N` upstream fans out non-GET verbs too.
+Every http verb takes repeatable `-H "Key: value"` flags and a `--redirect follow|error|manual` flag (fetch's `redirect` init), and URLs, `-H` values, and JSON literals are `$VAR`/`${VAR}` env-expanded (lambda bodies are **not** — they're JS, use `process.env`). The `:port/path` localhost shorthand works for all verbs, and `parallel N` upstream fans out non-GET verbs too.
+
+`--redirect` controls 3xx handling. `follow` is the default (unchanged behaviour). `error` refuses any 3xx — a moved endpoint can't pass a suite by landing somewhere else (plain verbs fail the line with `redirect refused (--redirect error)`; load-mode records carry `redirectRefused: true` instead of a bare `status: 0`). `manual` yields the 3xx itself, so `GET :3000/old --redirect manual | expect 301` asserts a redirect exists. Fixtures carry the same option as `input.redirect`.
 
 ## Assertions, concurrency, stats, capture
 
@@ -339,7 +342,9 @@ Runs `.crust.ts` fixture files against an HTTP service. Each file is a normal TS
   test-fixture stress.crust.ts -n1000 -j32 -o report.json
 
   # --timeout fails any fixture whose request runs longer (its own
-  # input.signal wins); --bail stops starting new fixtures on first failure
+  # input.signal wins); --bail stops starting new fixtures on first failure.
+  # input.redirect: "error"|"manual"|"follow" reaches fetch — the fixture-side
+  # twin of the http stage's --redirect (see above)
   test-fixture 'gen/*.gen.crust.ts' -t5000 -b
   ```
   </Fragment>
