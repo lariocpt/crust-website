@@ -86,6 +86,8 @@ landed.
 
 Prebuilt binaries cover linux and macOS on x64 and arm64. The Linux builds are glibc; on musl (Alpine) the installer refuses up front and points here rather than letting you install something that won't run.
 
+Two binaries ship per platform: the clean default (zero runtime dependencies) and the **mongo variant** (`crust-<platform>-<arch>-mongo`), which statically bundles the MongoDB driver because a compiled binary cannot load an npm package with dependencies at runtime. The npm channels are `@lariocpt/crust` and `@lariocpt/crust-mongo`; both install the same `crust` command, so pick one — installing both globally conflicts by design.
+
 ## Which binary a launcher resolves
 
 The npm package carries a `crust.source` field naming the artifact plane it was published for, overridable at runtime:

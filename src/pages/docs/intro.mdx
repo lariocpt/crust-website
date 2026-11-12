@@ -136,6 +136,12 @@ Both languages are tools. Bash wins for **launching processes and piping bytes**
 
 <InstallBlock />
 
+A **mongo variant** of the binary exists for the `mongo` builtin — same
+command, driver bundled (`bash -s -- crust-mongo` on the installer, or
+`npm i -g @lariocpt/crust-mongo`). The clean default stays zero-dependency
+and points at the variant when `mongo` is used on it.
+[DB drivers](/docs/db-drivers/#mongodb-mongo-builtin) has the details.
+
 Then run it whichever way fits the moment. Crust is not a login shell and
 doesn't want to be one — your shell stays your shell; crust is the tool you
 reach for when the line involves streams, HTTP, fixtures, or load:
