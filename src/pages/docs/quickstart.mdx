@@ -165,6 +165,10 @@ Every http verb takes repeatable `-H "Key: value"` flags and a `--redirect follo
   # stats --every N: windowed delta summaries + a {final: true} cumulative one
   range(0, 5999) | parallel 50 | GET :3000/health | stats --every 5
 
+  # summaries carry timedOut/redirectRefused tallies — load-mode failures are
+  # records, so gate them: exit 0 alone is never request success
+  range(0, 99) | parallel 10 | GET :3000/old --redirect error | stats | assert (s => s.redirectRefused === 0)
+
   # capture: write a value into process.env — every LATER line expands $THING_ID
   {"n": "x"} | POST :3000/things | (r => r.json()) | capture THING_ID (t => t.id)
   GET :3000/things/$THING_ID | expect 200
