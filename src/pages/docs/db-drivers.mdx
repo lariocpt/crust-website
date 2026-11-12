@@ -1,7 +1,7 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: DB drivers
-description: Point crust's sql builtin at Postgres, MySQL, SQLite, or anything you can wire up via init.ts.
+description: crust's sql builtin speaks Postgres, MySQL and SQLite; the mongo builtin speaks MongoDB on the mongo-bundled binary.
 ---
 
 import CodeSwitcher from '../../components/CodeSwitcher.astro';
@@ -227,6 +227,8 @@ Now the prompt has two namespaced stages:
 
 Anything with an npm-shipped client fits the same `crust.fn` mold. Register the wrapper in `init.ts`; use the same client directly from a `.ts` script. Install the driver where the file that imports it lives — for the `init.ts` below, that's `~/.config/crust/` (or your project dir for a per-project init): `bun add duckdb-async @clickhouse/client`.
 
+> **Released-binary caveat (measured 2026-11-12):** under the compiled binary, an `init.ts` import resolves only for packages with **no dependencies of their own** — `duckdb-async` and `@clickhouse/client` both carry deps and will fail to load (`crust: failed to load …`), while running crust from source loads them normally. For MongoDB there is a first-class answer instead of a shim: the [mongo variant binary](#mongodb-mongo-builtin) bundles the driver.
+
 <CodeSwitcher>
   <Fragment slot="bash">
   ```bash
@@ -262,6 +264,36 @@ Anything with an npm-shipped client fits the same `crust.fn` mold. Register the 
   </Fragment>
 </CodeSwitcher>
 
+## MongoDB (`mongo` builtin)
+
+MongoDB is not a Bun.SQL scheme, so it is its own builtin: `mongo "<expr>"` evaluates an expression against a live `db` handle. It ships in the **mongo variant binary**, which bundles the official driver — the clean binary stays zero-dependency and tells you to install the variant instead of failing mysteriously.
+
+<CodeSwitcher>
+  <Fragment slot="bash">
+  ```bash
+  # install the mongo variant (either channel)
+  curl -fsSL https://raw.githubusercontent.com/lariocpt/crust/main/install.sh | bash -s -- crust-mongo
+  npm i -g @lariocpt/crust-mongo
+
+  export MONGODB_URI='mongodb://localhost:27017/shop'   # $MONGO_URL also accepted
+  # $MONGODB_DB overrides the database named in the URI
+
+  # cursors stream one item per document
+  mongo "db.users.find({active: true}).limit(10)" | (u => u.email)
+
+  # writes yield their result object as one item
+  mongo "db.users.updateMany({tier: null}, {\$set: {tier: 'free'}})" | (r => r.modifiedCount)
+
+  # mid-pipeline the upstream item binds as `item`
+  read docs.json | (s => JSON.parse(s)) | mongo "db.users.insertMany(item)"
+  ```
+  </Fragment>
+</CodeSwitcher>
+
+Shell sugar works the way `mongosh` has it: `db.widgets.find(…)` — the driver's real `db.collection("widgets")` shape is proxied for you. A cursor (`find`/`aggregate`) is drained with `toArray()` so each document becomes its own item; anything else is awaited and emitted as one item. Bad expressions are caught **before** any network call, and every failure is labelled (`mongo: bad expression …`, `mongo: no connection (set $MONGODB_URI)`).
+
+Why a separate binary: a compiled Bun binary cannot load an npm package with dependencies at runtime (the driver's own `bson` import fails to resolve from outside the bundle — measured across three Bun versions). The only path that works is bundling the driver at build time, so crust ships two binaries per platform: the clean default and the `-mongo` variant (a few MB larger, otherwise identical).
+
 ## Troubleshooting
 
 | Error | Likely cause |
@@ -269,6 +301,9 @@ Anything with an npm-shipped client fits the same `crust.fn` mold. Register the 
 | `sql: no connection (set $DATABASE_URL)` | `$DATABASE_URL` is empty. Set it inline, in your shell rc, or in `init.ts` via `process.env.DATABASE_URL = ...`. |
 | `sql: this Bun build has no Bun.SQL or Bun.sql.unsafe support` | Your Bun is too old (or compiled without the relevant driver). Upgrade with `bun upgrade` and retry. |
 | `sql: client missing .unsafe — parameterised query unsupported` | A custom `crust.fn("sql", …)` shim is in place that doesn't implement parameterized queries. Add `params` support or fall back to template-tag form. |
+| `mongo: this crust binary has no mongo support` | You are on the clean binary. Install the mongo variant: `npm i -g @lariocpt/crust-mongo` or `install.sh crust-mongo`. |
+| `mongo: no connection (set $MONGODB_URI)` | `$MONGODB_URI` (or `$MONGO_URL`) is empty. Set it inline or in your shell rc. |
+| `mongo: no database` | Neither `$MONGODB_DB` nor the URI path names a database — use `mongodb://host/mydb` or set `$MONGODB_DB`. |
 | Hangs on first query | Network reachability or pg_hba / firewall. Try `pg_isready -d "$DATABASE_URL"` (Postgres) before retrying. |
 
 ## Related
