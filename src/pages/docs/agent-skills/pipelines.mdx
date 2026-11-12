@@ -40,6 +40,8 @@ This is the single most important idea, and the one an agent gets wrong without 
 
 `:3000/path` expands to `http://localhost:3000/path` everywhere.
 
+What each HTTP context actually yields — a `Response` or a `{status, ms, url}` timing record — is pinned in [HTTP result shapes](/docs/http-result-shapes/).
+
 ### Where `$VAR` expands — and where it doesn't
 
 Expansion happens at **parse time**, and only in specific positions: URLs, whole `-H` header strings, JSON literals, `stats --out` paths, and registered-fn arguments.

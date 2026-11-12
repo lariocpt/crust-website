@@ -42,6 +42,7 @@ Things the skill makes explicit:
 - **SQL row types** — rows arrive as the driver returns them. `count(*)` and `numeric` may come back as strings or bigints, so cast in SQL (`count(*)::int AS c`) and compare ids as strings.
 - **Hermetic per file** — `process.env` is snapshotted and restored around each file, so captures never leak between files.
 - **Status-check placement** — `expect N` when the check ends the line, `assert (r => r.status === N)` when more stages follow, because `expect` only throws at drain.
+- **Result shapes** — mid-pipeline `GET` and any `parallel` verb yield `{status, ms, url}` timing records, not `Response`s; the full table is in [HTTP result shapes](/docs/http-result-shapes/).
 - **Exit codes** — 0 all pass, 1 any failure, 2 no files or bad args.
 
 ## Layer 2 — `.crust.ts` fixtures
