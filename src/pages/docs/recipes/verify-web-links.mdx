@@ -99,6 +99,14 @@ r.totals.complete)` is refused outright, and a shell that has to remember each f
 forget one. `--strict` is current on `main`; it is not in the published release this page's grammar
 gate lints against, which is why it appears here in prose and not in a runnable block.
 
+Since 0.3.6 every failure also names its source: structured `sources[]` (page +
+element kind for each link that pointed at the failing target) and `meta`
+(key/expected/actual) in `--json`, indented `from <page> (<kind>)` lines in the
+text report, and a minimal aligned fix-list — one (page, element, broken-thing)
+triple per line — closing every failing run. See
+[crust-verify-web-links](/docs/agent-skills/verify-web-links/) for the full
+report format and a sample failing run.
+
 ## Flags
 
 | Flag | Default | Notes |
