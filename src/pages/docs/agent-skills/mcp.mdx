@@ -31,6 +31,20 @@ a mock boot in call three answers a request in call nine — and **every held
 job dies when the server exits**, so the skill pushes agents to stop tools by
 id and never to assume a session outlives the conversation.
 
+## Side-effect classes and teardown tiers
+
+Beyond the plane fork, the skill names four tool classes by what they touch —
+**static check** (`crust_check_line`, parses only), **execution** (arbitrary
+stages, real side effects; target approval, credentials, writes and cleanup
+stay the caller's job), **network/load generation** (bounded, approved
+non-production targets only), and **long-lived resources** (held by the server
+process). And three teardown tiers: local processes are killed whole, mock
+sessions close (port released — `--state` files and databases are application
+data and stay), and application data is never touched — a container or row a
+proc created remotely survives its local teardown. The same taxonomy ships in
+the `initialize` handshake's `instructions` (0.3.6), so an agent sees it
+before its first call.
+
 ## Validate before you spend a run
 
 `crust_check_line` is `--check` over the wire: it parses without running, so
