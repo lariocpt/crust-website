@@ -104,7 +104,7 @@ These are the ones worth internalising even if you never use an agent.
 
 ## Exit codes
 
-Any stage throw prints `crust: <message>` to stderr and exits 1. `crust -c`, `crust file.crust` and piped stdin all run newline-separated lines through the same fail-fast loop and stop at the first non-zero — so warmup and cleanup belong on their own lines.
+Any stage throw prints `crust: <message>` to stderr and exits 1. `crust -c`, `crust file.crust` and piped stdin all run newline-separated lines through the same fail-fast loop and stop at the first non-zero — so warmup and cleanup belong on their own lines. But cleanup on a later line is **happy-path cleanup, not guaranteed teardown**: under fail-fast an earlier failure means that line never runs. When failure-path cleanup is a requirement, use `crust.onExit` in `init.ts` — it fires on every shutdown-path exit, including the fail-fast failure path of `-c`, script, and stdin runs, with the failing line's exit code (test-pinned by `tests/onexit.test.ts`); `kill -9` and a direct `process.exit()` (including inside an `onSignal` handler) bypass it.
 
 ## Related
 
