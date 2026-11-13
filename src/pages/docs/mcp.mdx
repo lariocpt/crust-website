@@ -84,9 +84,9 @@ has no session to keep:
 | `crust_check_line` | `--check` as a linter: parses without running, so generated crust is validated before it costs a run |
 | `crust_test_fixture` | `.crust.ts` fixtures — matchers, JUnit/JSON reports, `-j`/`-n` stress runs |
 | `crust_test_pipes` | `.pipes` suites with `-s` setup context |
-| `crust_gen_fixtures` | OpenAPI spec → negative-case matrix + CRUD flow fixtures |
-| `crust_verify_web_links` | sitemap crawl: links, anchors, redirects, OG/meta, JSON output |
-| `crust_load_run` | paced load: `load … \| parallel … \| … \| stats \| assert`, thresholds as assert composition |
+| `crust_gen_fixtures` | OpenAPI spec → negative-case matrix + CRUD flow fixtures, plus the `gen-manifest.json` provenance sidecar (0.3.6) |
+| `crust_verify_web_links` | sitemap crawl: links, anchors, redirects, OG/meta, JSON output — failures name their source page and element kind (0.3.6) |
+| `crust_load_run` | paced load: `load … \| parallel … \| … \| stats \| assert`, thresholds as assert composition — `assert` takes one predicate or an array of gates, one assert stage each (0.3.6) |
 
 **Lifecycle tools** run *in-process* and stay **held across calls** for as
 long as the host keeps the server open — a mock started in one call is still
@@ -102,6 +102,30 @@ serving three calls later:
 A typical sequence: `crust_procs_start` the dev stack → gate with
 `crust_run_line` on `wait :3000/health` → `crust_load_run` with an `assert`
 threshold → `crust_logs_query` the survivors → `crust_procs_stop`.
+
+## Tool classes — side effects up front
+
+The `initialize` handshake carries this taxonomy in `instructions` (0.3.6),
+so an agent sees it before its first call:
+
+| Class | Tools | What it touches |
+| --- | --- | --- |
+| **Static check** | `crust_check_line` | parses only — runs nothing, no I/O, no spawn |
+| **Execution** | `crust_run_line`, `crust_test_fixture`, `crust_test_pipes`, `crust_gen_fixtures` | arbitrary stages with real side effects — target approval, credentials, writes and cleanup remain the caller's responsibility |
+| **Network / load generation** | `crust_verify_web_links`, `crust_load_run` | bounded generation against the network — approved non-production targets only |
+| **Long-lived resources** | `crust_mock_server_*`, `crust_procs_*`, `crust_logs_*` | held by the server process; die when it exits |
+
+**Teardown has three tiers, and no tool crosses them:**
+
+1. **Local processes** — `crust_procs_stop` (and server exit) kill the
+   supervised process groups whole: SIGTERM→SIGKILL, grandchildren included.
+2. **Mock-server sessions** — `crust_mock_server_stop` closes the listener and
+   releases the port. `--state` files and databases are application data: they
+   stay on disk.
+3. **Application data** — nothing in the MCP surface deletes remote or backend
+   resources or releases application data. A container a proc started, a row
+   it wrote, a queue it filled survives its local teardown; releasing it is
+   the caller's job (`crust.onExit` covers scripted cleanup).
 
 ## Honest failure, ported to MCP
 
@@ -119,6 +143,14 @@ The repo's first rule survives the protocol boundary:
   held job — mock ports closed, `procs` groups SIGTERM→SIGKILL'd whole —
   before the process exits, and a teardown still unwinding past 10s says so
   rather than claiming children are gone.
+- **Every crust-side answer is a frame.** One-shot tools spawn a fresh crust
+  child per call; lifecycle tools live in the server process. A successful
+  call, a refused argument and a failed run all come back as JSON-RPC frames
+  (the last two as `isError` results naming the reason). A call that fails
+  with a host-side error string that never appears in crust's own output (an
+  "unavailable tool" style refusal) never reached the server — the server was
+  not spawned, the command/path is wrong, or the host's transport framing
+  broke. The `printf | crust mcp` smoke test above separates the two.
 - **One call runs at a time.** The interrupt bus is process-global; two live
   windows draining at once would fire each other's children, so the server
   serializes.
