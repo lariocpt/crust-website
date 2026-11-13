@@ -74,7 +74,7 @@ For every operation the spec documents:
 | **401** without credentials | The op documents a *middleware* 401 — a `401` response whose description matches `/not authenticated\|log in/i`. Public endpoints (login documents 401 for bad credentials) get no case. | `status: 401` |
 | **403** as non-member | The op is scope-gated (see `scopeParam` below) and documents 403. An authenticated *outsider* — valid credentials, no membership — makes the call. | `status: 403` |
 | **404** with unknown id | Non-scope-gated ops with path params that document 404 — an authorised caller requests a random uuid. | `status: 404` |
-| **400** per body field | The op has a JSON request body and documents 400. One case per required field *missing*, one per field with the *wrong JSON type*, one per *enum violation*. | `status: 400` and the canonical `{ error, code: "validation", fieldErrors }` body naming the field |
+| **400** per body field | The op has a JSON request body and documents 400. One case per required field *missing*, one per field with the *wrong JSON type*, one per *enum violation*. | `status: 400` and the canonical `{ error, code: "validation", fieldErrors }` body naming the field — or a FastAPI `detail` array naming the field's location when `validationEnvelope: "fastapi"` is configured ([`expectations`](#the-setup-module-contract)) |
 | **400** per boundary | Same precondition — one case per violated `minLength` / `maxLength` / `minimum` / `maximum` / `pattern`, for required **and** optional fields. Nullable fields count: both the zod-style `anyOf: [X, {type: "null"}]` wrapper and OpenAPI 3.1's `"type": ["string", "null"]` union are unwrapped to the real schema first, so a nullable field gets its boundary cases under either spelling. | same as above |
 | **400** extra property | The body schema has `additionalProperties: false`. | `status: 400`, `code === "validation"` |
 
@@ -315,14 +315,14 @@ Each `.pipes` file is hermetic (env snapshotted/restored per file), so generated
 
 ## gen-manifest.json — the review artifact (new in 0.3.6)
 
-The **last write** of every successful generation is `gen-manifest.json` inside `--out`: every generated case with its expectation's **provenance** — `contract:paths.<path>.<method>.responses.<code>` when the spec documents that status for the operation (every case family today is gated on a documented response; crust never assumes a status the contract is silent on), `convention:<name>` if a status were ever assumed by rule rather than read from the spec, `configured:<setup-module>` when a reviewed `expectations` override in the setup module supplied a status the spec leaves silent (a documented status always wins over a configured one) — plus every skip (dropped cases, skipped flows, `flowOverrides.skip`) with the same reason stdout shows, and every unsupported operation with what crust could not derive. Prerequisites are NAMES (`auth`, `scope:member`, `resource:<param>`), never values from your setup module.
+The **last write** of every successful generation is `gen-manifest.json` inside `--out`: every generated case with its expectation's **provenance** — `contract:paths.<path>.<method>.responses.<code>` when the spec documents that status for the operation (every case family today is gated on a documented response; crust never assumes a status the contract is silent on), `convention:<name>` if a status were ever assumed by rule rather than read from the spec, `configured:<setup-module>` when a reviewed `expectations` override in the setup module supplied a status the spec leaves silent (a documented status always wins over a configured one); every validation-matrix case additionally carries a `validationOracle` — `{ envelope, source, target }`: the envelope the case asserts (`crust` when the key is omitted, `fastapi` when configured), `source` `default` for the omitted convention or `configured:<setup-module>` for an explicit choice, and `target` the case's body location with its mutation kind (`expectationSource` records the status's provenance; the oracle records the body's shape). Plus every skip (dropped cases, skipped flows, `flowOverrides.skip`) with the same reason stdout shows, and every unsupported operation with what crust could not derive. Prerequisites are NAMES (`auth`, `scope:member`, `resource:<param>`), never values from your setup module.
 
 The file is deterministic — no timestamps; the spec is identified by a sha256 of its content — so the same spec + crust version regenerate it byte-identically (it rides along in the regen-and-diff workflow: no spec change, empty diff). And it states its own limit in every copy: **it records generation only, nothing in it was executed or verified.** It lives inside `--out`, so the directory wipe takes it with it, and a failed generation never leaves one behind. Review it before running anything the generator produced — it answers "why does this case expect 400?" without re-reading the generator.
 
 ```json
 {
   "crustGenManifest": 1,
-  "crustVersion": "0.3.6",
+  "crustVersion": "0.3.8",
   "spec": {
     "path": "./openapi.json",
     "sha256": "23fd5c835f8d81db86b800bd3b1f55ca242334e3bad91b3058c046931254acf5"
@@ -343,6 +343,14 @@ The file is deterministic — no timestamps; the spec is identified by a sha256 
       "mutation": "invalid enum for 'kind'",
       "expectStatus": 400,
       "expectationSource": "contract:paths./api/things/{thingId}/widgets.post.responses.400",
+      "validationOracle": {
+        "envelope": "crust",
+        "source": "default",
+        "target": {
+          "loc": ["body", "kind"],
+          "kind": "enum"
+        }
+      },
       "prerequisites": ["auth", "scope:member", "resource:thingId"]
     }
   ],
@@ -373,17 +381,23 @@ Generated files are **app-agnostic**: they import only from your `--setup` modul
 | `scopeParam: string \| null` | The template param name that marks a path as scope-gated (e.g. `"buildingId"`). An op is scope-gated when its path's *first* template param has this name. `null` disables 403 derivation. |
 | `scopeRoots?: string[]` | Optional path prefixes (e.g. `"/api/buildings"`) whose immediately following first template param is the scope id even under a different name (`/api/buildings/{id}`). |
 | `JSON_HEADERS` | Plain unauthenticated JSON headers, used for the 401 cases. |
-| `expectations?` | New in 0.3.6: reviewed expectation overrides for backends whose contract disagrees with the 400 convention. `validationStatus` sets the validation-matrix status (e.g. `422`); `concealment` (`"404"` or `"403"`) sets the status of the unknown-id / outsider case family when the spec documents neither; `operations` overrides either per operation, keyed exactly `"METHOD /path"` as the spec writes it, method uppercase — per-operation beats global. **A documented status always wins**: configuration fills gaps in the contract, it never contradicts it, and configured cases carry `configured:<setup-module>` provenance in the manifest. Unknown keys, statuses outside 400–599, or operation keys the spec does not have refuse the generation with exit 2 and write nothing. |
+| `expectations?` | New in 0.3.6 (0.3.8 adds `validationEnvelope`): reviewed expectation overrides for backends whose contract disagrees with the 400 convention. `validationStatus` sets the validation-matrix status (e.g. `422`); `validationEnvelope` (`"crust"` or `"fastapi"`) sets the **shape** of the expected validation body — never its status, and never inferred from one; `concealment` (`"404"` or `"403"`) sets the status of the unknown-id / outsider case family when the spec documents neither; `operations` overrides any of them per operation, keyed exactly `"METHOD /path"` as the spec writes it, method uppercase — per-operation beats global. **A documented status always wins**: configuration fills gaps in the contract, it never contradicts it — a documented `400` beats a configured `422` even with an envelope set — and configured cases carry `configured:<setup-module>` provenance in the manifest. Unknown keys, statuses outside 400–599, an envelope value that is neither `crust` nor `fastapi`, or operation keys the spec does not have refuse the generation with exit 2 and write nothing. |
 
-A minimal `expectations` block, for a backend that answers 422 and hides existence:
+A minimal `expectations` block, for a FastAPI backend that answers 422 and hides existence:
 
 ```ts
 export const expectations = {
   validationStatus: 422, // this backend answers 422, never 400
+  validationEnvelope: "fastapi", // …and 422 bodies are FastAPI-shaped
   concealment: "404", // unknown ids and outsiders both get 404
-  operations: { "POST /api/reports": { validationStatus: 400 } }, // this one really does 400
+  operations: {
+    // this one really does 400, Crust-shaped — per-operation beats global
+    "POST /api/reports": { validationStatus: 400, validationEnvelope: "crust" },
+  },
 };
 ```
+
+**What `validationEnvelope: "fastapi"` actually asserts** (new in 0.3.8). It changes the *shape* of the body assertion — never its status, and never inferred from one. Omitted, the matrix keeps the canonical `{ error, code: "validation", fieldErrors }` body byte for byte. Set, each validation case expects a FastAPI-shaped body: a `detail` array containing an error whose `loc` equals the case's own body location — `["body", "<field>"]`, derived from the mutated schema field, never parsed from a case name (an unexpected-property case targets the synthetic field `crustUnexpectedProp`) — with nonempty string `msg` and `type`. No message text is ever matched: the location is the contract. A wrong-field error, a query/path location, a malformed entry or a generic body fails under **either** envelope, and a case whose mutation cannot be attributed to a body location is dropped and disclosed in the manifest's `unsupported` list rather than weakened. The documented response schema stays attached — predicate and schema are cumulative — and a documented `400` still beats a configured `422` even with an envelope set.
 
 A minimal real module:
 
@@ -482,6 +496,7 @@ Plain `test-fixture` fixtures — nothing magic. `--threads`, `--timeout`, `--ba
 
 - **Descriptions are the trigger.** The 401 derivation keys off the response *description* (`/not authenticated|log in/i`). If your middleware 401s aren't matching, that's the string to fix in the spec.
 - **Run against the real server, not the mock.** The whole point is proving the server rejects; [mock-server](/docs/recipes/mock-server/) accepts anything that routes — unless you boot it with `--validate`, in which case it rejects with `422`, which still isn't your server's documented `400` contract.
+- **Framework-layer validation.** A backend that validates before your handler — FastAPI included — answers `422` with a `detail` array; set `validationStatus: 422` and `validationEnvelope: "fastapi"` in `expectations` ([the setup module contract](#the-setup-module-contract)) and the matrix asserts exactly that shape.
 - **Zero cases for an op means the spec is silent.** Documenting the 400/401/403/404 responses — and the `minLength`/`maximum`/`pattern` constraints — is what buys you the tests.
 
 ## Related

@@ -84,7 +84,7 @@ has no session to keep:
 | `crust_check_line` | `--check` as a linter: parses without running, so generated crust is validated before it costs a run |
 | `crust_test_fixture` | `.crust.ts` fixtures — matchers, JUnit/JSON reports, `-j`/`-n` stress runs |
 | `crust_test_pipes` | `.pipes` suites with `-s` setup context |
-| `crust_gen_fixtures` | OpenAPI spec → negative-case matrix + CRUD flow fixtures, plus the `gen-manifest.json` provenance sidecar (0.3.6) |
+| `crust_gen_fixtures` | OpenAPI spec → negative-case matrix + CRUD flow fixtures, plus the `gen-manifest.json` provenance sidecar (0.3.6; per-case `validationOracle` body-shape provenance since 0.3.8) |
 | `crust_verify_web_links` | sitemap crawl: links, anchors, redirects, OG/meta, JSON output — failures name their source page and element kind (0.3.6) |
 | `crust_load_run` | paced load: `load … \| parallel … \| … \| stats \| assert`, thresholds as assert composition — `assert` takes one predicate or an array of gates, one assert stage each (0.3.6) |
 
