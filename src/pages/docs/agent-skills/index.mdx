@@ -22,7 +22,7 @@ skills list
 
 ```text
 crust-api-testing
-    Test HTTP APIs with crust — .pipes suites (one fixture pipeline per line, request chaining via capture, inline SQL verification), .crust.ts fixtures with setup/matchers, and gen-fixtures which derives negative-case matrices and CRUD flow suites from an OpenAPI spec. Use for API integration tests, contract tests from a spec, auth/authz negative cases, or DB-verified endpoint tests.
+    Test HTTP APIs with crust — .pipes suites (one fixture pipeline per line, request chaining via capture, inline SQL verification), .crust.ts fixtures with setup/matchers, gen-fixtures which derives negative-case matrices and CRUD flow suites from an OpenAPI spec, and the evidence-tier taxonomy (snapshot vs DB-verified vs demo). Use for API integration tests, contract tests from a spec, auth/authz negative cases, or DB-verified endpoint tests.
 crust-builtins
     crust has two separate namespaces — tool builtins (`mock-server`, `test-fixture`, `test-pipes`, `gen-fixtures`, `verify-web-links`, `logs`, `dotenv`, `skills`) that need a line of their own, and registered functions (`base64`, `salt`, `jwt`, `bundle`, `sql`, `wait`) that are space-separated stages usable as a source or mid-pipeline. Explains what the upstream item means to each one, why `bundle(5)` is a shell syntax error, and how to reach crypto/FS from a lambda. Use when a crust stage exits 2 with `syntax error near unexpected token`, when a mid-pipeline function eats the wrong argument, or when a lambda says `salt is not defined`.
 crust-cli
@@ -40,7 +40,7 @@ crust-pipelines
 crust-procs
     Run and supervise dev processes with crust — procs() merges multiple long-lived commands into one pipeable stream with per-proc env, restart backoff, readiness probes (ready:), dependency ordering (after:), and process-group teardown; wait blocks until a port/URL is up. Use for dev runners ("start db, api, web in order"), readiness gating in CI, tailing multiple services, or mining merged process logs.
 crust-verify-web-links
-    Crawl a site from its sitemap and verify every link, #anchor, redirect chain, OG image and meta tag against .crust.ts fixtures. `--base-url` auto-discovers the sitemap (robots.txt → /sitemap.xml → /sitemap-index.xml), `--site-map-url` takes a local sitemap so you can check build output, `--fixtures` diffs meta. Use when link or SEO health must gate a deploy, when a built site should be checked before publishing, or when OG/meta regressions need catching.
+    Crawl a site from its sitemap and verify every link, #anchor, redirect chain, OG image and meta tag against .crust.ts fixtures. `--base-url` auto-discovers the sitemap (robots.txt → /sitemap.xml → /sitemap-index.xml), `--site-map-url` takes a local sitemap so you can check build output, `--fixtures` diffs meta. Every failure names its source page and element (structured `sources`/`meta`), and every failing run ends with an aligned fix-list. Use when link or SEO health must gate a deploy, when a built site should be checked before publishing, or when OG/meta regressions need catching.
 ```
 
 ## The ten skills
