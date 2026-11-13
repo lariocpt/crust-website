@@ -313,7 +313,7 @@ test-pipes 'tests/**/*.pipes' -b -t5000
 
 Each `.pipes` file is hermetic (env snapshotted/restored per file), so generated flows can't leak `$GEN_*` vars into your hand-written suites — and since the spec can't know your table names, add `sql`-assert lines in a hand-written `.pipes` file when you want the DB-level counterpart of a flow.
 
-## gen-manifest.json — the review artifact
+## gen-manifest.json — the review artifact (new in 0.3.6)
 
 The **last write** of every successful generation is `gen-manifest.json` inside `--out`: every generated case with its expectation's **provenance** — `contract:paths.<path>.<method>.responses.<code>` when the spec documents that status for the operation (every case family today is gated on a documented response; crust never assumes a status the contract is silent on), `convention:<name>` if a status were ever assumed by rule rather than read from the spec, `configured:<setup-module>` when a reviewed `expectations` override in the setup module supplied a status the spec leaves silent (a documented status always wins over a configured one) — plus every skip (dropped cases, skipped flows, `flowOverrides.skip`) with the same reason stdout shows, and every unsupported operation with what crust could not derive. Prerequisites are NAMES (`auth`, `scope:member`, `resource:<param>`), never values from your setup module.
 
@@ -322,7 +322,7 @@ The file is deterministic — no timestamps; the spec is identified by a sha256 
 ```json
 {
   "crustGenManifest": 1,
-  "crustVersion": "0.3.5",
+  "crustVersion": "0.3.6",
   "spec": {
     "path": "./openapi.json",
     "sha256": "23fd5c835f8d81db86b800bd3b1f55ca242334e3bad91b3058c046931254acf5"
@@ -373,7 +373,7 @@ Generated files are **app-agnostic**: they import only from your `--setup` modul
 | `scopeParam: string \| null` | The template param name that marks a path as scope-gated (e.g. `"buildingId"`). An op is scope-gated when its path's *first* template param has this name. `null` disables 403 derivation. |
 | `scopeRoots?: string[]` | Optional path prefixes (e.g. `"/api/buildings"`) whose immediately following first template param is the scope id even under a different name (`/api/buildings/{id}`). |
 | `JSON_HEADERS` | Plain unauthenticated JSON headers, used for the 401 cases. |
-| `expectations?` | Reviewed expectation overrides for backends whose contract disagrees with the 400 convention. `validationStatus` sets the validation-matrix status (e.g. `422`); `concealment` (`"404"` or `"403"`) sets the status of the unknown-id / outsider case family when the spec documents neither; `operations` overrides either per operation, keyed exactly `"METHOD /path"` as the spec writes it, method uppercase — per-operation beats global. **A documented status always wins**: configuration fills gaps in the contract, it never contradicts it, and configured cases carry `configured:<setup-module>` provenance in the manifest. Unknown keys, statuses outside 400–599, or operation keys the spec does not have refuse the generation with exit 2 and write nothing. |
+| `expectations?` | New in 0.3.6: reviewed expectation overrides for backends whose contract disagrees with the 400 convention. `validationStatus` sets the validation-matrix status (e.g. `422`); `concealment` (`"404"` or `"403"`) sets the status of the unknown-id / outsider case family when the spec documents neither; `operations` overrides either per operation, keyed exactly `"METHOD /path"` as the spec writes it, method uppercase — per-operation beats global. **A documented status always wins**: configuration fills gaps in the contract, it never contradicts it, and configured cases carry `configured:<setup-module>` provenance in the manifest. Unknown keys, statuses outside 400–599, or operation keys the spec does not have refuse the generation with exit 2 and write nothing. |
 
 A minimal `expectations` block, for a backend that answers 422 and hides existence:
 
