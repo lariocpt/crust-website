@@ -40,10 +40,15 @@ find this on, and which element":
   being omitted.
 - `meta` — structured `{key, expected, actual}` for `meta-mismatch` findings
   (`meta-fixture-no-page` carries `key: "fixture"`).
-- **Fix-list** — every failing text run ends with a separate aligned section:
-  one line per (page, element, broken-thing) triple, nothing else. A clean run
-  prints no fix-list section; in `--json` the structured fields *are* the
-  fix-list.
+- **Fix-list** — every failing run ends with the aligned triple section: one
+  line per (page, element, broken-thing) triple, nothing else. A text run
+  prints it at the end of stdout. Under `--json` the report owns stdout, so
+  the **same table** (same columns, same rows) is written to **stderr** —
+  added in 0.3.7, because the CI shape is `--json > report.json`, and a failing
+  run that redirected its artifact used to leave the log saying nothing but
+  "exited with 1". A clean run prints no fix-list on either channel. Exit codes
+  are unchanged, and the structured `sources`/`meta` fields still carry the
+  same facts for machines.
 
 A real failing run (broken link from two pages with two element kinds, a
 missing anchor, and a meta-fixture mismatch):
