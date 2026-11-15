@@ -1,7 +1,7 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: MCP server
-description: crust mcp speaks the Model Context Protocol over stdio, so an MCP-capable agent (OpenCode, Claude Code, Codex, Cursor) drives crust directly — every capability a first-class tool, mock servers and log sessions held open across calls, and a nonzero run that is always an error result, never a false pass.
+description: Drive Crust over stdio MCP with run/check, test, generation and load tools plus held mock/procs/log sessions — host-specific configuration, per-tool schemas, explicit gates and honest child exit results.
 ---
 
 import InstallBlock from '../../components/InstallBlock.astro';
@@ -9,7 +9,7 @@ import InstallBlock from '../../components/InstallBlock.astro';
 **Goal:** let an AI agent run your test stack without a shell. `crust mcp` is a
 [Model Context Protocol](https://modelcontextprotocol.io) server over stdio —
 JSON-RPC 2.0, one message per line. The agent's host spawns it once and calls
-`tools/list`, which returns every crust capability as a direct tool: run a
+`tools/list`, which returns the advertised wrappers: run a
 line, lint a line, run suites, boot a mock server, supervise dev processes,
 mine logs. No meta-tool wrapping a CLI in the way; the agent sees
 `crust_load_run` and calls it.
@@ -18,8 +18,8 @@ mine logs. No meta-tool wrapping a CLI in the way; the agent sees
 
 <InstallBlock />
 
-Then register the server with your agent host — the shape is the same across
-OpenCode, Claude Code, Codex and Cursor:
+Then register the server using your particular host's configuration schema.
+For hosts using `mcpServers` (for example Claude-style configuration):
 
 ```json
 { "mcpServers": { "crust": { "command": "crust", "args": ["mcp"] } } }
@@ -37,16 +37,16 @@ user-level MCP settings) — the `mcpServers` shape above silently fails there
 }
 ```
 
-Two verified traps: `"command"` must be an **absolute path** — a GUI-launched
-VS Code does not inherit the shell's `PATH`, so bare `"crust"` dies
-`spawn crust ENOENT` when the launcher lives outside the default lookup dirs.
-And VS Code's MCP support ships inside the Chat/Copilot Chat extension —
-Code - OSS / VSCodium has no MCP host without an extension (Cline, Roo Code or
-Continue each carry their own MCP settings).
+Prefer an **absolute executable path** when a GUI host's `PATH` differs from
+your shell; bare `"crust"` works only if the host can resolve it, otherwise
+it fails with an error such as `spawn crust ENOENT`. Code - OSS/VSCodium needs
+an MCP-capable host extension. Each host/extension has separate settings and
+tool-exposure policies: availability in Copilot does not register the server
+with another agent.
 
-Grammar lands automatically: the one-shot tools pass line/fixture text to a
-fresh crust child untouched, so anything the lexer accepts is an MCP tool
-call the moment the installed binary has it — no MCP-side change per feature.
+New grammar is available through `crust_run_line` when the installed binary
+supports it. Dedicated tools still have wrapper schemas; new CLI arguments
+do not automatically become new MCP arguments or tools.
 
 `crust mcp` is a whole-process **mode**, not a REPL builtin: it takes over
 stdin and stdout for the connection, which only makes sense as a process the
@@ -74,9 +74,8 @@ What persists between tool calls is the whole design question, and the tool
 names answer it.
 
 **One-shot tools** run a fresh crust child per call and return its captured
-streams. Real exit codes, killable process groups, and `cwd`/`env` that apply
-**per call and never carry over** — every description says so, because a child
-has no session to keep:
+streams. Real exit codes, killable process groups, and schema-supported
+overrides apply **per call, never as a persistent session**:
 
 | Tool | The capability it exposes |
 |---|---|
@@ -84,9 +83,17 @@ has no session to keep:
 | `crust_check_line` | `--check` as a linter: parses without running, so generated crust is validated before it costs a run |
 | `crust_test_fixture` | `.crust.ts` fixtures — matchers, JUnit/JSON reports, `-j`/`-n` stress runs |
 | `crust_test_pipes` | `.pipes` suites with `-s` setup context |
-| `crust_gen_fixtures` | OpenAPI spec → negative-case matrix + CRUD flow fixtures, plus the `gen-manifest.json` provenance sidecar (0.3.6; per-case `validationOracle` body-shape provenance since 0.3.8) |
+| `crust_gen_fixtures` | OpenAPI spec → supported negative cases + qualifying CRUD flows, plus `gen-manifest.json` provenance and omissions; effective security/query prerequisites can omit an operation or whole candidate flow |
 | `crust_verify_web_links` | sitemap crawl: links, anchors, redirects, OG/meta, JSON output — failures name their source page and element kind (0.3.6) |
-| `crust_load_run` | paced load: `load … \| parallel … \| … \| stats \| assert`, thresholds as assert composition — `assert` takes one predicate or an array of gates, one assert stage each (0.3.6) |
+| `crust_load_run` | paced load: `load … \| parallel … \| … \| stats`, with optional post-stats `assert` predicates (one string or an array); no automatic request-success gate |
+
+**Schema exceptions matter:** `crust_check_line` accepts only `line` and has
+a fixed 15s watchdog. `crust_gen_fixtures` and `crust_verify_web_links` accept
+`cwd`/`timeout_ms`, but not `env`. Run-line, test, and load tools accept `env`
+overlays on the inherited environment. Generator `parameterValues`,
+`resolveParameter`, and `expectations` are setup-module exports, not
+top-level MCP arguments. Generation deletes and recreates `out`; review its
+manifest before separate, approved execution.
 
 **Lifecycle tools** run *in-process* and stay **held across calls** for as
 long as the host keeps the server open — a mock started in one call is still
@@ -110,33 +117,42 @@ so an agent sees it before its first call:
 
 | Class | Tools | What it touches |
 | --- | --- | --- |
-| **Static check** | `crust_check_line` | parses only — runs nothing, no I/O, no spawn |
+| **Static check** | `crust_check_line` | launches a syntax-check child, possibly `sh -n`; does not execute supplied stages, read their data files, send their requests, or inspect TypeScript fixture contents |
 | **Execution** | `crust_run_line`, `crust_test_fixture`, `crust_test_pipes`, `crust_gen_fixtures` | arbitrary stages with real side effects — target approval, credentials, writes and cleanup remain the caller's responsibility |
 | **Network / load generation** | `crust_verify_web_links`, `crust_load_run` | bounded generation against the network — approved non-production targets only |
 | **Long-lived resources** | `crust_mock_server_*`, `crust_procs_*`, `crust_logs_*` | held by the server process; die when it exits |
 
-**Teardown has three tiers, and no tool crosses them:**
+**Teardown has three tiers; stopping local resources is not data cleanup:**
 
 1. **Local processes** — `crust_procs_stop` (and server exit) kill the
    supervised process groups whole: SIGTERM→SIGKILL, grandchildren included.
 2. **Mock-server sessions** — `crust_mock_server_stop` closes the listener and
    releases the port. `--state` files and databases are application data: they
    stay on disk.
-3. **Application data** — nothing in the MCP surface deletes remote or backend
-   resources or releases application data. A container a proc started, a row
-   it wrote, a queue it filled survives its local teardown; releasing it is
+3. **Application data** — teardown does not delete remote/backend resources
+   or application data. Execution tools can create, change or delete that
+   data; stopping their local processes does not undo it. A container a proc
+   started, a row it wrote, or a queue it filled survives local teardown; releasing it is
    the caller's job (`crust.onExit` covers scripted cleanup).
 
 ## Honest failure, ported to MCP
 
-The repo's first rule survives the protocol boundary:
+The wrapper preserves the child's answer; it does not independently judge
+whether all requests or desired checks succeeded:
 
-- A nonzero child exit, a killed timeout, a failed `assert`, a mock validation
-  error — all are **`isError` results** carrying the child's own exit code and
-  output verbatim. The tool never overrules the line's answer, and never
-  green-lights a run that measured nothing: an `empty` load is refused, and a
-  zero-match query answers with an explicit **"zero items"** — zero is an
-  answer, not silence.
+- A nonzero child exit or killed timeout is an **`isError` result** carrying
+  its captured output (subject to announced caps). Failed asserts propagate
+  through the child exit. Timed HTTP failures are records; proxy conformance
+  violations are findings to inspect with `crust_mock_server_violations`,
+  not automatic tool failures. `isError: false` is not request-success proof.
+- **Load assertions are optional.** Without `assert`, an empty or all-failed
+  measurement can exit 0. Supply status-first predicates, then latency/rate
+  gates. With an assertion, tagged empty summaries are refused. Window/final
+  guards need `stats_every`; without it those keys are absent and the
+  threshold short-circuits. Drops warn on stderr, not as an automatic failure
+  or stats-summary field. A passing minimum-rate gate can still have drops.
+- A zero-match log query answers **"zero items"** — zero is an answer, not
+  silence or universal failure.
 - **Output is capped** per stream (256 KB, tail-kept) and truncation is always
   announced, never silent.
 - **Lifetime is the host's.** stdin EOF, SIGINT or SIGTERM tear down every
@@ -145,12 +161,11 @@ The repo's first rule survives the protocol boundary:
   rather than claiming children are gone.
 - **Every crust-side answer is a frame.** One-shot tools spawn a fresh crust
   child per call; lifecycle tools live in the server process. A successful
-  call, a refused argument and a failed run all come back as JSON-RPC frames
-  (the last two as `isError` results naming the reason). A call that fails
-  with a host-side error string that never appears in crust's own output (an
-  "unavailable tool" style refusal) never reached the server — the server was
-  not spawned, the command/path is wrong, or the host's transport framing
-  broke. The `printf | crust mcp` smoke test above separates the two.
+  result, a known-tool argument/run failure (`isError`), or a protocol error
+  all arrive as JSON-RPC frames. Unknown tools and malformed parameters can
+  be JSON-RPC errors instead of tool results. A host-side "unavailable tool"
+  message alone does not diagnose the failing layer: inspect registration,
+  tool exposure, and server frames before attributing it to Crust.
 - **One call runs at a time.** The interrupt bus is process-global; two live
   windows draining at once would fire each other's children, so the server
   serializes.
@@ -163,7 +178,8 @@ The repo's first rule survives the protocol boundary:
 - **`init.ts` loads normally** — registered functions and config apply to
   fragments run by `crust_logs_query`. A chatty config is harmless: at
   startup `process.stdout` is redirected to stderr before the config loads,
-  so the protocol stream stays pure.
+  so the protocol stream stays pure. Config is executable user code: a
+  syntax-only tool does not make server startup side-effect-free.
 - **`--env-file`** is honored at startup if your host passes it in `args`.
 
 ## Related

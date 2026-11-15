@@ -6,7 +6,7 @@ description: Derive the 401/403/404/400 matrix, per-field boundary violations, a
 
 import CodeSwitcher from '../../../components/CodeSwitcher.astro';
 
-**Goal:** stop hand-writing the boring-but-critical rejection tests. If your OpenAPI spec documents what the server must *reject*, `gen-fixtures` can derive the whole negative matrix — unauthenticated, wrong-scope, unknown-id, per-field validation, and per-field *boundary* cases — as `.crust.ts` files that `test-fixture` runs like any other fixture. And for every qualifying collection it also derives a **CRUD flow suite**: a capture-chained `.pipes` file that creates, reads, updates, deletes, and checks the tombstone.
+**Goal:** stop hand-writing the boring-but-critical rejection tests. If your OpenAPI spec documents what the server must *reject*, `gen-fixtures` can derive supported negative cases — unauthenticated, wrong-scope, unknown-id, per-field validation, and per-field *boundary* cases — as `.crust.ts` files that `test-fixture` runs like any other fixture. Qualifying collections also get a **CRUD flow suite**: a capture-chained `.pipes` file with the documented create, read, update, delete, and tombstone steps it can derive. Unsupported prerequisites and skipped flows are disclosed, not counted as coverage.
 
 ## The shape of it
 
@@ -28,8 +28,9 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Programmatic — regenerate as part of a CI step
-  import { generateFixtures } from "crust/genFixtures/generate";
+  // scripts/generate.ts in the Crust source checkout.
+  // The compiled executable/npm launcher does not expose this as a package.
+  import { generateFixtures } from "../src/genFixtures/generate";
 
   const { outDir, files, totalCases } = await generateFixtures({
     swagger: "./openapi.json",          // URL or path; Swagger 2.0 auto-converted
@@ -63,15 +64,15 @@ crust -c 'gen-fixtures ./openapi.json'
 git diff --exit-code tests/gen    # fails the job if someone changed the spec without regenerating
 ```
 
-Regenerating a spec that predates newer derivation rules yields a **purely additive diff** — existing case names, order and bodies are untouched, so the diff stays reviewable.
+Byte stability assumes an unchanged spec, setup configuration, generator version, and emitted style. A generator upgrade is **not guaranteed to be additive**: improved request planning can change requests or remove cases and flows whose prerequisites cannot be represented safely. Review those omissions as well as additions.
 
 ## What gets derived
 
-For every operation the spec documents:
+For operations whose request prerequisites can be represented (see [security and required query baselines](#security-and-required-query-baselines)):
 
 | Case | When it's emitted | Asserts |
 |---|---|---|
-| **401** without credentials | The op documents a *middleware* 401 — a `401` response whose description matches `/not authenticated\|log in/i`. Public endpoints (login documents 401 for bad credentials) get no case. | `status: 401` |
+| **401** without credentials | The op documents 401 and its effective `security` requires authentication. Operation security overrides root security; `[]` or an anonymous `{}` alternative suppresses this case. Only when security is absent does the legacy description test `/not authenticated\|log in/i` decide whether a documented 401 is a middleware rejection rather than bad login credentials. | `status: 401` |
 | **403** as non-member | The op is scope-gated (see `scopeParam` below) and documents 403. An authenticated *outsider* — valid credentials, no membership — makes the call. | `status: 403` |
 | **404** with unknown id | Non-scope-gated ops with path params that document 404 — an authorised caller requests a random uuid. | `status: 404` |
 | **400** per body field | The op has a JSON request body and documents 400. One case per required field *missing*, one per field with the *wrong JSON type*, one per *enum violation*. | `status: 400` and the canonical `{ error, code: "validation", fieldErrors }` body naming the field — or a FastAPI `detail` array naming the field's location when `validationEnvelope: "fastapi"` is configured ([`expectations`](#the-setup-module-contract)) |
@@ -113,7 +114,7 @@ Given one schema —
 }
 ```
 
-— the POST operation alone yields this matrix (real case names from a generated run):
+— a POST operation with representable request prerequisites, effective authentication, and documented 401/400 responses yields this matrix (real case names from a generated run):
 
 ```text
 POST /things without credentials -> 401
@@ -300,6 +301,10 @@ The generated `flows.gen.setup.ts` adapts your existing setup module — it call
 
 **Qualification** — a collection path `P` gets a flow when: it has a POST with an `application/json` request schema and a documented 2xx; an item path `P/{param}` with at least one of GET/PUT/PATCH/DELETE exists; `P` carries no path params beyond the scope param (nested collections are skipped with a stdout notice); the created id's location is derivable from the POST's 2xx response — the media `example`, else `schema.properties`: top-level `id`, else the first object-valued property containing an `id` (not derivable → skipped with a notice naming the path); and the derived create body satisfies its own schema — a required field whose pattern crust cannot build would 400 on the flow's very first step, so the flow is skipped with a notice instead of shipped, and `flowOverrides` is how you fill it.
 
+**Request-plan limit:** the `.pipes` flow emitter cannot yet carry required/configured query baselines or enforce explicit security plans. An operation with either is blocked from flow derivation, even when its fixtures can be generated. Explicit security includes inherited declarations and anonymous `[]` or `{}` alternatives.
+
+Eligibility is checked against the **original operation graph**. A blocked create, read, selected update (PATCH before PUT), or DELETE omits the whole candidate; stdout and the manifest name the blocked operation. A blocked DELETE is never silently removed to make a shorter flow look eligible. An emitted DELETE is still **happy-path cleanup**, not guaranteed teardown after an earlier failure: define failure-path cleanup and obtain execution approval separately.
+
 ```bash
 gen-fixtures ./openapi.json --no-flows   # matrix only
 ```
@@ -315,9 +320,11 @@ Each `.pipes` file is hermetic (env snapshotted/restored per file), so generated
 
 ## gen-manifest.json — the review artifact (new in 0.3.6)
 
-The **last write** of every successful generation is `gen-manifest.json` inside `--out`: every generated case with its expectation's **provenance** — `contract:paths.<path>.<method>.responses.<code>` when the spec documents that status for the operation (every case family today is gated on a documented response; crust never assumes a status the contract is silent on), `convention:<name>` if a status were ever assumed by rule rather than read from the spec, `configured:<setup-module>` when a reviewed `expectations` override in the setup module supplied a status the spec leaves silent (a documented status always wins over a configured one); every validation-matrix case additionally carries a `validationOracle` — `{ envelope, source, target }`: the envelope the case asserts (`crust` when the key is omitted, `fastapi` when configured), `source` `default` for the omitted convention or `configured:<setup-module>` for an explicit choice, and `target` the case's body location with its mutation kind (`expectationSource` records the status's provenance; the oracle records the body's shape). Plus every skip (dropped cases, skipped flows, `flowOverrides.skip`) with the same reason stdout shows, and every unsupported operation with what crust could not derive. Prerequisites are NAMES (`auth`, `scope:member`, `resource:<param>`), never values from your setup module.
+The **last write** of every successful generation is `gen-manifest.json` inside `--out`: every generated case with its expectation's **provenance** — `contract:paths.<path>.<method>.responses.<code>` when the spec documents that status for the operation, `convention:<name>` if a status were ever assumed by rule rather than read from the spec, `configured:<setup-module>` when a reviewed `expectations` override in the setup module supplied a status the spec leaves silent (a documented status always wins over a configured one); every validation-matrix case additionally carries a `validationOracle` — `{ envelope, source, target }`: the envelope the case asserts (`crust` when the key is omitted, `fastapi` when configured), `source` `default` for the omitted convention or `configured:<setup-module>` for an explicit choice, and `target` the case's body location with its mutation kind (`expectationSource` records the status's provenance; the oracle records the body's shape). Plus every skip (dropped cases, skipped flows, `flowOverrides.skip`) with the same reason stdout shows, and every unsupported operation with what crust could not derive. Prerequisites are NAMES (`auth`, `scope:member`, `resource:<param>`, `query:<name>`), never runtime values or credentials.
 
-The file is deterministic — no timestamps; the spec is identified by a sha256 of its content — so the same spec + crust version regenerate it byte-identically (it rides along in the regen-and-diff workflow: no spec change, empty diff). And it states its own limit in every copy: **it records generation only, nothing in it was executed or verified.** It lives inside `--out`, so the directory wipe takes it with it, and a failed generation never leaves one behind. Review it before running anything the generator produced — it answers "why does this case expect 400?" without re-reading the generator.
+Operations omitted for unsupported security requirements, missing or unproven query baselines, unsupported query serialization, and request-plan-blocked CRUD flows are recorded explicitly. A missing operation or flow is an omission to review, not evidence that the API passed. Static query values are embedded in the generated fixtures, so supply only reviewed, **non-secret** values.
+
+The file is deterministic — no timestamps; the spec is identified by a sha256 of its content — so the same spec, setup configuration, and crust version regenerate it byte-identically. And it states its own limit in every copy: **it records generation only, nothing in it was executed or verified.** It lives inside `--out`, so the directory wipe takes it with it, and a failed generation never leaves one behind. Review it before running anything the generator produced — it answers "why does this case expect 400?" without re-reading the generator.
 
 ```json
 {
@@ -371,17 +378,75 @@ The file is deterministic — no timestamps; the spec is identified by a sha256 
 
 ## The setup module contract
 
-Generated files are **app-agnostic**: they import only from your `--setup` module. It carries every app-specific detail — how to authenticate, what "scope" means, where the API lives. Required exports:
+Generated files are **app-agnostic**: they import only from your `--setup` module; request-plan guards are emitted inline with no generator-package imports. The setup carries every app-specific detail — how to authenticate, what "scope" means, where the API lives. Its required and optional exports are:
 
 | Export | Contract |
 |---|---|
-| `shared(): Promise<Ctx>` | Promise-cached scenario factory (users, roles, ids). Wired as every fixture's `setup`, so it **must cache** — build once on first call, return the same promise afterwards (safe under `--threads`). It must also be **lazy**: no side effects at import time, because the generator imports the module at generation time just to read the scope config. |
+| `shared(): Promise<Ctx>` | Promise-cached scenario factory (users, roles, ids). Wired as every fixture's `setup`, so it **must cache** — build once on first call, return the same promise afterwards (safe under `--threads`). It must also be **lazy**: no side effects at import time, because the generator imports the module at generation time to read configuration, not to provision resources. |
 | `headersFor(ctx, role)` | Request headers for `"member"` (clears both auth and scope gates) or `"outsider"` (authenticated, no membership in the shared scope). Generated code never calls it with `"none"`. |
 | `resolvePath(ctx, template)` | Takes the raw path template with `{param}` placeholders, substitutes scope params from `ctx`, fills any other `{param}` with a random uuid, and prefixes the API base URL. Returns the absolute request URL. |
 | `scopeParam: string \| null` | The template param name that marks a path as scope-gated (e.g. `"buildingId"`). An op is scope-gated when its path's *first* template param has this name. `null` disables 403 derivation. |
 | `scopeRoots?: string[]` | Optional path prefixes (e.g. `"/api/buildings"`) whose immediately following first template param is the scope id even under a different name (`/api/buildings/{id}`). |
 | `JSON_HEADERS` | Plain unauthenticated JSON headers, used for the 401 cases. |
+| `parameterValues?: Record<string, Record<string, unknown>>` | Reviewed, non-secret query baselines, keyed exactly `"METHOD /path"` (uppercase method, spec path template), then by declared query name. These override schema defaults/examples and are embedded in generated fixtures. Unknown operation or query names and malformed maps are configuration errors, not silently ignored values. |
+| `resolveParameter(ctx, operation, name)?` | Lazy synchronous or async query resolver, selected only when the static selection yields no value. Called during fixture execution, **never during generation**. It owns full schema and application validity; emitted guards enforce structural/wire safety only. |
 | `expectations?` | New in 0.3.6 (0.3.8 adds `validationEnvelope`): reviewed expectation overrides for backends whose contract disagrees with the 400 convention. `validationStatus` sets the validation-matrix status (e.g. `422`); `validationEnvelope` (`"crust"` or `"fastapi"`) sets the **shape** of the expected validation body — never its status, and never inferred from one; `concealment` (`"404"` or `"403"`) sets the status of the unknown-id / outsider case family when the spec documents neither; `operations` overrides any of them per operation, keyed exactly `"METHOD /path"` as the spec writes it, method uppercase — per-operation beats global. **A documented status always wins**: configuration fills gaps in the contract, it never contradicts it — a documented `400` beats a configured `422` even with an envelope set — and configured cases carry `configured:<setup-module>` provenance in the manifest. Unknown keys, statuses outside 400–599, an envelope value that is neither `crust` nor `fastapi`, or operation keys the spec does not have refuse the generation with exit 2 and write nothing. |
+
+### Security and required query baselines
+
+These rules describe **request prerequisites**, not new negative-case families. Required/configured query values accompany every generated fixture family, including no-credentials cases. **No query-negative matrix is generated.** The body-derivation rules earlier on this page are separate from the conservative static-query checks below.
+
+#### Security selection
+
+Operation `security` overrides root `security`. An empty list (`[]`) or an anonymous requirement (`{}`) among the alternatives permits anonymous access and suppresses the no-credentials 401 case. When neither operation nor root declares security, the legacy middleware-401 description heuristic remains the fallback.
+
+Security alternatives are **OR**; schemes within an alternative are **AND**. Supported schemes are HTTP bearer, HTTP basic, and header API keys, with **empty scope lists**. An alternative that requires unsupported schemes, nonempty scopes, or conflicting requirements for the same header cannot be selected. If no supported alternative remains, the operation is omitted with a reason. OAuth/OpenID, query/cookie API keys, and scope negotiation are not implemented here.
+
+For credentialed fixture cases, inline guards require `headersFor` to satisfy at least one supported alternative: one case-insensitive match per required header, a nonblank value, and the bearer/basic prefix with a nonblank tail when applicable. This checks **header structure**, not credential validity, identity, membership, or authorization. Security alone never invents an undocumented 401/403 expectation; reviewed `expectations` still govern supported configurable case families.
+
+#### Choosing query baselines
+
+Path-item and operation parameters are merged by `(name, in)`, with the operation entry winning. Required query parameters are included; optional ones are omitted unless named in `parameterValues`. For each included query name, selection is:
+
+1. `parameterValues["METHOD /path"][name]`;
+2. the parameter schema's `default`;
+3. the parameter's `example`;
+4. the schema's `example`;
+5. the first schema `enum` member.
+
+Only when that selection yields no value (`undefined`) may the lazy `resolveParameter(ctx, operation, name)` supply it at fixture runtime. The generator never calls the resolver. A selected static value that fails proof is **not** replaced by a later example, enum member, or runtime resolver. Without a value or resolver, the operation is omitted.
+
+#### Static schema proofs
+
+A static baseline must satisfy both the original and dereferenced query schema within the generator's supported subset: scalar types, scalar-array items, `nullable`, `enum`, numeric bounds, string length/pattern/format, array length bounds, and recursively covered `allOf`/`anyOf` branches. Every branch must have supported constraints; `allOf` requires every branch to accept the value, while `anyOf` checks each branch independently and needs at least one accepting branch.
+
+The check **fails closed** on unknown or unsupported assertions such as `multipleOf`, `not`, `const`, `oneOf`, and `uniqueItems`; unknown formats; malformed constraints or invalid patterns; unresolved/cyclic references; empty or annotation-only schema branches; and recursion beyond the depth-32 guard. `$ref` may carry annotations, not assertion siblings. Descriptive annotations and `x-` extensions do not prove a value valid. These local checks deliberately do **not** widen or change the shared mock validator's behavior.
+
+String `minLength`/`maxLength` count **Unicode code points**, including inside array items and each composition branch, not UTF-16 code units or grapheme clusters. Static format proofs use these deliberately conservative, printable-ASCII subsets:
+
+| Format | Proven static subset |
+|---|---|
+| `date` | Real Gregorian `YYYY-MM-DD` dates in years 0001–9999, including leap-year checks. |
+| `date-time` | A valid date, `T`/`t`, `HH:MM:SS`, optional fractional seconds, and required `Z`/`z` or `±HH:MM`. Hours are 00–23 and minutes/seconds 00–59, including offset bounds. No year zero, leap seconds, space separator, or compact offset. |
+| `uuid` | Hyphenated RFC 4122 versions 1–5 with variant 8/9/a/b, or the nil UUID; case-insensitive. |
+| `email` | Unquoted ASCII dot-atom local part (at most 64 characters), DNS-label domain (labels at most 63, domain at most 253), alphabetic final label of 2–63 characters, and total length at most 254. No quoted or internationalized addresses. |
+| `uri` | Absolute HTTP(S) URIs with a DNS-label host or canonical dotted IPv4, optional numeric port at most 65535, RFC 3986 component characters, and valid percent escapes. No userinfo, IPv6 literals, Unicode, trailing-dot hosts, backslashes, or alternate/short IPv4 spellings that URL parsing would repair. |
+
+Outside a subset means **unproven as a static prerequisite**, not globally invalid. These checks do not resolve DNS, test mailbox existence, or contact a URI. A runtime resolver owns full schema and business validity; the emitted helper does not repeat the static format or length proof.
+
+#### Query serialization and runtime guards
+
+Supported queries use `style: "form"` (also the default) with strings, numbers, integers, booleans, or **nonempty arrays of scalar items**. `explode` defaults to true: arrays repeat the key; `explode: false` joins items with commas. Included names replace existing values of the same name in `resolvePath`'s URL while unrelated query keys survive. Encoding uses `URLSearchParams`.
+
+Static checks and independent emitted guards reject:
+
+- Non-finite numbers and **integral numeric values with absolute magnitude at least `1e21`**, including under `type: "number"` and inside arrays, to avoid an exponent-form integer on the wire.
+- Unpaired UTF-16 surrogates in query strings, array string items, or required/configured names. Well-formed supplementary characters are allowed. The emitted name guard runs before calling a resolver so URL encoding cannot silently replace a malformed name.
+- Empty arrays, non-scalar values, and comma-bearing string elements in **non-exploded** arrays. Exploded arrays may contain comma-bearing strings.
+
+Query objects, content-based parameters, other serialization styles, and `allowReserved: true` are unsupported for required/configured queries. Required non-path/non-query parameters, such as header or cookie parameters, also omit the operation; security-scheme headers are handled separately above. Runtime guards check array-versus-scalar shape and wire safety, **not** the exact declared scalar type, complete schema, format, length, or application validity of a resolver's result.
+
+### Expectation overrides
 
 A minimal `expectations` block, for a FastAPI backend that answers 422 and hides existence:
 
@@ -398,6 +463,8 @@ export const expectations = {
 ```
 
 **What `validationEnvelope: "fastapi"` actually asserts** (new in 0.3.8). It changes the *shape* of the body assertion — never its status, and never inferred from one. Omitted, the matrix keeps the canonical `{ error, code: "validation", fieldErrors }` body byte for byte. Set, each validation case expects a FastAPI-shaped body: a `detail` array containing an error whose `loc` equals the case's own body location — `["body", "<field>"]`, derived from the mutated schema field, never parsed from a case name (an unexpected-property case targets the synthetic field `crustUnexpectedProp`) — with nonempty string `msg` and `type`. No message text is ever matched: the location is the contract. A wrong-field error, a query/path location, a malformed entry or a generic body fails under **either** envelope, and a case whose mutation cannot be attributed to a body location is dropped and disclosed in the manifest's `unsupported` list rather than weakened. The documented response schema stays attached — predicate and schema are cumulative — and a documented `400` still beats a configured `422` even with an envelope set.
+
+### Minimal setup module
 
 A minimal real module:
 
@@ -448,6 +515,8 @@ export function resolvePath(ctx: Ctx, template: string) {
 
 The import specifier in generated files is rewritten relative to `--out`, so a path-like `--setup` works from anywhere; a bare package specifier is kept as-is.
 
+Keeping a bare specifier is not a runtime-resolution guarantee: fixtures run by the compiled binary must use relative modules or Bun builtins, not depend on bare npm imports at runtime.
+
 The crust repo ships a complete runnable module to copy at `examples/gen-setup.ts` — the same shape as above with working `fetch`-based auth helpers to replace with your API's flow.
 
 **crust does not ship `./tests/gen-setup.ts`** — that path is the default by convention in *your* repo. Run `gen-fixtures` without one and it says so, naming the path it looked at, the template to copy, and the `--setup` flag.
@@ -494,10 +563,10 @@ Plain `test-fixture` fixtures — nothing magic. `--threads`, `--timeout`, `--ba
 
 ## Tips
 
-- **Descriptions are the trigger.** The 401 derivation keys off the response *description* (`/not authenticated|log in/i`). If your middleware 401s aren't matching, that's the string to fix in the spec.
+- **Security is authoritative when present.** A documented 401 needs an effective authentication requirement; anonymous declarations suppress the case. The response-description heuristic (`/not authenticated|log in/i`) is only the fallback when both root and operation security are absent.
 - **Run against the real server, not the mock.** The whole point is proving the server rejects; [mock-server](/docs/recipes/mock-server/) accepts anything that routes — unless you boot it with `--validate`, in which case it rejects with `422`, which still isn't your server's documented `400` contract.
 - **Framework-layer validation.** A backend that validates before your handler — FastAPI included — answers `422` with a `detail` array; set `validationStatus: 422` and `validationEnvelope: "fastapi"` in `expectations` ([the setup module contract](#the-setup-module-contract)) and the matrix asserts exactly that shape.
-- **Zero cases for an op means the spec is silent.** Documenting the 400/401/403/404 responses — and the `minLength`/`maximum`/`pattern` constraints — is what buys you the tests.
+- **Zero cases does not necessarily mean a silent spec.** Unsupported security/query prerequisites or unproven static baselines can omit an otherwise documented operation. Review stdout and `gen-manifest.json` before interpreting coverage or approving execution; generation itself executes and verifies none of the generated cases.
 
 ## Related
 

@@ -5,10 +5,10 @@
 // generation step — exactly the thing that rots. crust's own repo lints its
 // docs by importing the lexer, but this is a SEPARATE repo and cannot. What it
 // can do is run the binary: `crust --check '<lines>'` parses without executing
-// (no file is opened, nothing is spawned), so an example referencing
-// fixtures/*.json or :3000 checks clean on a machine that has neither.
+// the example's stages (shell syntax preflight may spawn `sh -n`), so references
+// to fixtures/*.json or :3000 check clean on a machine that has neither.
 //
-// Usage: node scripts/lint-examples.mjs [path-to-crust]
+// Usage: bun --config=/dev/null scripts/lint-examples.mjs [path-to-crust]
 // Exits 1 with the offending line if anything fails to parse.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";

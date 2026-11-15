@@ -62,12 +62,12 @@ The primary shape gates **status first, then performance**, with `stats` (and th
 load 30s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (s => Object.keys(s.status).every(k => k.startsWith("2"))) | assert (s => s.timedOut === 0) | assert (s => s.redirectRefused === 0) | assert (s => s.p95 < 200) | assert (s => s.rps > 80)
 ```
 
-One assert per threshold, so the failure names the predicate and prints the summary. What the shape buys you: `stats` **reports, it does not gate** — the `timedOut`/`redirectRefused` tallies describe outcomes, and the `assert`s after it are the only thing that fails a run; **latency-only gates are satisfiable by fast 500s**, so status is gated first; the `--out` report **survives a failing gate** (flushed after every window, before each yield) while an `expect` placed before `stats` prevents the summary from ever existing; a **zero-request run** is tagged `empty: true` and refused, so "measured nothing" never passes; and **`rps` is the achieved rate** — a drop report on stderr means the target was not sustained, never a pass.
+One assert per threshold, so the failure names the predicate and prints the summary. What the shape buys you: `stats` **reports, it does not gate** — the `timedOut`/`redirectRefused` tallies describe outcomes, and the `assert`s after it are the only thing that fails a run; **latency-only gates are satisfiable by fast 500s**, so status is gated first; the `--out` report **survives a failing gate** (flushed after every window, before each yield) while an `expect` placed before `stats` prevents the summary from ever existing; a **zero-request run** is tagged `empty: true` and refused, so "measured nothing" never passes; and **`rps` is the achieved rate**. Drops only produce a stderr warning: this 100/s scenario can pass its `rps > 80` gate with drops. A passing minimum-rate gate is not proof that the full target rate was sustained.
 
 Baseline comparison — `--out` writes a versioned artifact and an async assert reads the previous one back:
 
 ```crust
-load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (async s => { const b = await Bun.file("load/baseline.json").json(); return s.p95 < 2 * b.summary.p95 })
+load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (s => s.status["200"] === s.count) | assert (async s => { const b = await Bun.file("load/baseline.json").json(); return s.p95 < 2 * b.summary.p95 })
 ```
 
 The artifact is written **before** the gate runs, so a failed gate still leaves the file for CI to upload.
@@ -75,19 +75,23 @@ The artifact is written **before** the gate runs, so a failed gate still leaves 
 Soak with fail-fast windows — `--every N` emits `{window: k, …}` deltas and then `{final: true, …}`:
 
 ```crust
-load 60s 25/s | parallel 25 | GET :3000/health | stats --every 5 | assert (s => !s.window || s.p95 < 400)
+load 60s 25/s | parallel 25 | GET :3000/health | stats --every 5 | assert (s => s.status["200"] === s.count) | assert (s => !s.window || s.p95 < 400)
 ```
 
 `!s.window ||` scopes a threshold to window objects, `!s.final ||` to the final summary — and a guard needs the object it guards. Without `--every` the plain summary carries neither key, so `!s.window` is true and `||` short-circuits: the threshold never runs — `stats | assert (s => !s.window || s.p95 < 0.1)` exits 0 with p95 at 4.2. Drop the guard when you drop `--every`.
 
 ## Warmup
 
-Warmup is simply a separate line whose stats aren't gated:
+Warmup is a separate line with a status gate, but no performance thresholds:
 
 ```crust
-range(0, 99) | parallel 10 | GET :3000/health | stats
-load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200)
+range(0, 99) | parallel 10 | GET :3000/health --timeout 2s | stats | assert (s => s.status["200"] === s.count)
+load 30s 100/s | parallel 50 | GET :3000/health --timeout 2s | stats | assert (s => s.status["200"] === s.count) | assert (s => s.p95 < 200)
 ```
+
+Network failures are `status: 0` records, not exceptions. Without the warmup
+status assertion a dead service does not stop the script; without the measured
+status assertion fast failures can satisfy the latency budget.
 
 ## Related
 

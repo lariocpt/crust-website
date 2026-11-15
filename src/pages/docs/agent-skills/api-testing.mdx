@@ -12,7 +12,7 @@ description: Three layers of API testing in one binary — .pipes suites with ca
 |---|---|---|
 | `test-pipes` | `.pipes` — one pipeline per line | readable CRUD suites, chaining, SQL cross-checks |
 | `test-fixture` | `.crust.ts` — TS fixture modules | complex setup, matcher functions, stress runs |
-| `gen-fixtures` | generated from `openapi.json` | negative matrices and CRUD flows for every documented operation |
+| `gen-fixtures` | generated from `openapi.json` | negative matrices for supported operations and qualifying CRUD flows, with omissions disclosed |
 
 The skill's advice is to start at the top and only descend when the layer above genuinely can't express the check.
 
@@ -56,8 +56,11 @@ export default {
   input: {
     url: "http://localhost:3000/api/users",
     method: "POST",
-    headers: (ctx) => ({ authorization: `Bearer ${ctx.token}` }),
-    body: { name: "x" },
+    headers: (ctx) => ({
+      authorization: `Bearer ${ctx.token}`,
+      "content-type": "application/json",
+    }),
+    body: JSON.stringify({ name: "x" }),
   },
   output: {
     status: 201,
@@ -70,12 +73,16 @@ export default {
 test-fixture 'tests/*.crust.ts' -j8 -o report.xml
 ```
 
+Fixture input is forwarded to fetch after resolution: unlike object-to-HTTP
+pipeline stages, it does not automatically JSON-encode bodies or add a content
+type. Use `JSON.stringify` and an explicit header.
+
 `output.schema` takes an inline JSON Schema the response body must conform to, failing with per-field pointer paths. **Inline means `$ref`-free** — a `$ref` anywhere in it is a loud error, because the runner has no spec to resolve it against and would otherwise pass silently. Unknown schema keywords pass: the validator never invents a violation.
 
 Two constraints worth knowing before writing fixtures:
 
 - Fixtures may run **concurrently** under `-j`, so share state only through a module-scope promise-cached factory.
-- Fixture files may import only **relative modules and Bun builtins** — the compiled binary cannot resolve npm at runtime. Use `Bun.SQL`, `Bun.file`, `Bun.jwt`.
+- Fixture files may import only **relative modules and Bun builtins** — the compiled binary cannot resolve npm at runtime. Use `Bun.SQL`, `Bun.file`, or Web Crypto's `crypto.subtle` as appropriate.
 
 ## Layer 3 — `gen-fixtures`
 
@@ -85,12 +92,20 @@ gen-fixtures ./openapi.json
 
 Output is deterministic and byte-stable — check it in, regenerate, review the `git diff`. Since **0.3.2** the emitter also reads the nearest `biome.json` and emits the `.crust.ts` fixtures and `flows.gen.setup.ts` in its indent, so a formatter-gated repo ends the gen with a biome pass over the output directory and a second regen lands byte-identical; [the recipe covers the full treatment](/docs/recipes/gen-fixtures/). It emits:
 
-- **A negative matrix per operation** — 401 no-credentials, 403 authenticated-outsider on scope-gated paths, 404 unknown-id, and a 400 matrix per body field: missing required, wrong type, bad enum, too short or long, below or above numeric bounds, pattern violations, unexpected extra property.
-- **CRUD flows** — create → read → update → delete → read-after-delete-404, chained with `capture` and run by `test-pipes` with no extra flags.
+- **A negative matrix for supported operations** — documented 401 no-credentials, 403 authenticated-outsider on scope-gated paths, 404 unknown-id, and a 400 matrix per body field: missing required, wrong type, bad enum, too short or long, below or above numeric bounds, pattern violations, unexpected extra property. Reviewed `expectations` can fill contract gaps for supported case families; security itself never invents undocumented 401/403 expectations.
+- **Qualifying CRUD flows** — documented create/read/update/delete/tombstone steps, chained with `capture` and run by `test-pipes` with no extra flags. The flow emitter does not yet carry required/configured query baselines or explicit security plans, including anonymous declarations. Eligibility uses the original operation graph: a blocked create, read, selected update (PATCH before PUT), or DELETE omits the whole candidate and names the blocked operation, rather than silently dropping cleanup.
+
+**Security and query prerequisites are part of the baseline request.** Operation `security` overrides root security; `[]` or an anonymous `{}` alternative permits anonymous access. Alternatives are OR, schemes within one alternative are AND. Bearer, Basic, and header API keys with empty scope lists are supported; an operation with no supported alternative is omitted and disclosed. Emitted header guards check structure, not identity validity. The middleware-401 description heuristic is only a fallback when security is absent.
+
+Required query parameters are carried by every fixture family; path-item parameters are merged with operation overrides by `(name, in)`. Reviewed, non-secret `parameterValues` entries (keyed `"METHOD /path"`, then query name) outrank schema defaults, parameter examples, schema examples, and the first enum member, in that order. Only a missing static value selects lazy `resolveParameter(ctx, operation, name)`, which is never called during generation. Optional query parameters are omitted unless explicitly configured, and a rejected static baseline is not silently replaced by the resolver.
+
+Static query validation fails closed on unsupported assertions (such as `oneOf`, `const`, or `multipleOf`), unknown formats, unresolved/cyclic references, or unproven composition branches. Supported string lengths count Unicode code points, not UTF-16 units or grapheme clusters, and formats use conservative local proofs: real Gregorian dates, timezone-qualified date-times, RFC 4122 v1–5 or nil UUIDs, ASCII dot-atom email, and absolute HTTP(S) URIs. These are static query-baseline checks, not changes to the shared mock validator. The [full recipe](/docs/recipes/gen-fixtures/#security-and-required-query-baselines) lists the subsets and reference/composition rules.
+
+Query `form` scalars and nonempty scalar arrays support `explode` true or false. Included names replace existing values of the same name while unrelated query keys survive. Non-exploded arrays reject comma-bearing elements; integral numeric values of absolute magnitude at least `1e21` and malformed Unicode in strings or required/configured names are rejected both statically and by emitted guards. Required header/cookie parameters, query objects, content-based parameters, other styles, and `allowReserved: true` remain unsupported. **No query-negative matrix is generated.** A runtime resolver owns full schema and application validity; guards enforce structure and wire safety, not full schema, format, or length validity.
 
 The honest limit, which the skill states plainly: **SQL assertions are not derivable from a spec.** Add those by hand in your own `.pipes`. And the `--out` directory is deleted and recreated every run, so never hand-edit generated files.
 
-What crust cannot attribute it does not emit: a case whose expected 400 could only be explained by a field it does not mention is dropped, and the drop is named on stdout — a silently smaller suite would look like coverage.
+What crust cannot attribute it does not emit: a case whose expected 400 could only be explained by a field it does not mention is dropped, and the drop is named on stdout — a silently smaller suite would look like coverage. The manifest also records unsupported request prerequisites and skipped flows; query prerequisites are names (`query:<name>`), never runtime values or credentials. Static configured values are embedded in generated fixtures, so keep them non-secret. Regeneration after a generator upgrade is not guaranteed to be additive, and zero cases can mean unsupported prerequisites rather than a silent spec. Generation is not execution or verification; review omissions and approve execution separately.
 
 ## What evidence does your test produce? (new in 0.3.6)
 

@@ -33,8 +33,9 @@ import CodeSwitcher from '../../../components/CodeSwitcher.astro';
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Programmatic — exit code drives CI
-  import { runCli } from "crust/verifyWebLinks/cli";
+  // scripts/verify.ts in the Crust source checkout — exit code drives CI.
+  // This is not a package path exposed by the compiled executable.
+  import { runCli } from "../src/verifyWebLinks/cli";
 
   const code = await runCli([
     "--base-url", "https://example.com",

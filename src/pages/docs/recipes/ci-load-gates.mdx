@@ -28,13 +28,22 @@ That's a complete CI gate: the summary object — and the `load/last.json` artif
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // The same gate from a bun-run script — status first, then performance.
+  // A TS helper imported by Crust (for example from init.ts), where the
+  // pipeline APIs below are globals — not a standalone plain-Bun script.
+  // Gate status first, then performance.
   // statsStage's out argument writes load/last.json as the run proceeds, so
   // the artifact exists before the first gate below is evaluated.
   const [summary] = await load([{ durMs: 30_000, rps: 100 }])
     .pipe(parallel(50, timedGet("http://localhost:3000/health")))
     .pipe(statsStage(undefined, "load/last.json"))
     .collect();
+
+  // Parser-level `assert` refuses empty stats automatically; manual TS gates
+  // must enforce that contract themselves.
+  if (!summary || summary.empty || summary.count === 0) {
+    console.error("load gate measured nothing");
+    process.exit(1);
+  }
 
   const gates: [string, (s: typeof summary) => boolean][] = [
     ["status", (s) => Object.keys(s.status).every((k) => k.startsWith("2"))],
@@ -60,7 +69,7 @@ Five properties make the pattern honest — each is detailed where this page goe
 - **`stats` reports, it does not gate.** The summary — `timedOut` and `redirectRefused` included — only describes what happened. Nothing `stats` emits fails the pipeline: a run whose every request was refused prints `{"status":{"0":N}}` and exits 0 unless a gate is present. The counters *report* outcomes; the `assert` stages after `stats` are the only thing that fails a run.
 - **Gate status before latency — fast 500s satisfy any budget.** A mid-pipeline `GET` yields a timed `{status, ms, url}` record whether or not `parallel` is written, and the percentiles are built from every timed record, whatever its status — a 500 in 2ms is under any p95 threshold. A fast error storm is stopped by the status gate, not waved through by the latency one.
 - **The report survives a failing gate — `expect` before `stats` does not.** `--out` is flushed after every window and before each yield, write-then-rename, so the file is on disk before the summary that trips a failing `assert` is emitted. The contrast: an `expect` placed before `stats` throws at drain, before `stats` has consumed anything — the summary (and the report) never exist. [The trap, in detail](#the-trap-expect-before-stats-hides-the-summary).
-- **"Measured nothing" never passes.** A zero-request run yields a summary tagged `empty: true`, and `assert` refuses it — a glob that matched nothing, a filter that dropped everything, a server never reached. [Exit codes](#exit-codes).
+- **"Measured nothing" never passes an assertion.** A zero-request run yields a summary tagged `empty: true`, and `assert` refuses it — a glob that matched nothing or a filter that dropped everything. An unreachable server produces `status: 0` records instead; the status gate rejects those. [Exit codes](#exit-codes).
 - **`rps` is the achieved rate, never the target.** `stats.rps` is measured from the records that actually passed. When the target was not sustained, `load` already said so on stderr — `load: target 3000 ticks — emitted 2868, dropped 132 (…), achieved 95.6/s` — because stale slots are skipped, never burst. A drop report means the number under the rate gate is the honest one. [Honest numbers](#honest-numbers-or-why-you-can-trust-the-gate).
 
 ## One assert per threshold
@@ -93,6 +102,7 @@ load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/baseline.json
   "summary": {
     "count": 1000, "wallMs": 10002, "rps": 100,
     "status": { "200": 1000 },
+    "timedOut": 0, "redirectRefused": 0,
     "p50": 41.6, "p95": 48.2, "p99": 63.1, "meanMs": 42.0
   }
 }
@@ -104,6 +114,7 @@ load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/baseline.json
 
 ```bash
 load 10s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json \
+  | assert (s => Object.keys(s.status).every(k => k.startsWith("2"))) \
   | assert (async s => { const b = await Bun.file("load/baseline.json").json(); return s.p95 < 2 * b.summary.p95 })
 ```
 
@@ -156,27 +167,31 @@ exact.
 
 ## The warmup pattern
 
-Cold JITs, empty caches and unopened pools belong to the first requests, not to your gate. Make warmup its own line in the same script — its summary simply isn't gated:
+Cold JITs, empty caches and unopened pools belong to the first requests, not to your performance gate. Make warmup its own line in the same script — gate successful statuses, but omit its latency and rate thresholds:
 
 ```bash
-crust -c 'range(0, 99) | parallel 10 | GET :3000/health | stats
-load 30s 100/s | parallel 50 | GET :3000/health | stats | assert (s => s.p95 < 200)'
+crust -c 'range(0, 99) | parallel 10 | GET :3000/health --timeout 2s | stats | assert (s => s.status["200"] === s.count)
+load 30s 100/s | parallel 50 | GET :3000/health --timeout 2s | stats | assert (s => s.status["200"] === s.count) | assert (s => s.p95 < 200)'
 ```
 
-Line 1 pushes 100 requests through and prints a summary nobody judges. Line 2 is the measured run. Fail-fast still applies: if the warmup line itself errors (service down), the gate never runs and the step fails honestly.
+Line 1 pushes 100 requests through and requires HTTP 200 without judging
+warmup performance. Line 2 gates status and measured latency. A refused
+connection or timeout is a `status: 0` record, so it is the status assertion —
+not `stats` or fail-fast alone — that makes warmup fail and prevents line 2
+from running.
 
 ## Hung upstreams fail fast — `--timeout`
 
 A service that stops *answering* without going down is the one failure a gate can't threshold its way out of: hung requests pin the `parallel` pool, the run never drains, and the CI step sits there until the job's own timeout kills it — with no summary and no artifact. Put a per-request `--timeout <dur>` on the verb stage and the wedge becomes an ordinary red gate — the primary pattern's status gate, the `timedOut` tally, and a latency budget:
 
 ```bash
-load 30s 100/s | parallel 50 | GET :3000/health --timeout 2s | stats \
+load 30s 100/s | parallel 50 | GET :3000/health --timeout 2s | stats --out load/last.json \
   | assert (s => Object.keys(s.status).every(k => k.startsWith("2"))) \
   | assert (s => s.timedOut === 0) \
   | assert (s => s.p95 < 200)
 ```
 
-Each timed-out request yields a `{status: 0, timedOut: true}` record, so it lands in the histogram under `"0"` *and* in the `timedOut` tally — the status gate catches it first (`0` is not a `2`; a plain connection refusal is also `status: 0`, so the gate already belongs in a strict gate), the tally says how many requests hit the budget, the run completes on schedule, and `--out` still writes the artifact. Against a fully wedged endpoint the failure reads:
+Each timed-out request yields a `{status: 0, timedOut: true}` record, so it lands in the histogram under `"0"` *and* in the `timedOut` tally — the status gate catches it first (`0` is not a `2`; a plain connection refusal is also `status: 0`, so the gate already belongs in a strict gate). The tally says how many requests hit the budget; the pool still needs to drain after the arrival schedule ends, but individual requests are bounded and `--out` can write the artifact. Illustrative failure output:
 
 ```text
 crust: assert: item 1 failed (s => Object.keys(s.status).every(k => k.startsWith("2"))) — got {"count":20,"wallMs":2401,"rps":8,"status":{"0":20},"timedOut":20,"redirectRefused":0,"p50":500.8,"p95":501.5,"p99":501.5,"meanMs":500.8}
@@ -190,6 +205,7 @@ For long runs, gate each window so degradation fails the job *when it happens*, 
 
 ```bash
 load 10m 50/s | parallel 25 | GET :3000/health | stats --every 30 \
+  | assert (s => s.status["200"] === s.count) \
   | assert (s => !s.window || s.p95 < 400) \
   | assert (s => !s.final  || s.p95 < 200)
 ```
@@ -230,7 +246,13 @@ Most load tools fail quietly in one specific way: when the target can't keep up,
 - `stats.rps` is always the **measured** rate. If your gate says `s.rps > 80` and the run only achieved 60/s, the gate fails — crust structurally cannot report a rate it didn't sustain.
 - `ms` values are true request durations, and completion-order streaming means each lands in the window it finished in — the percentiles under the gate are the percentiles that happened.
 
-So a green gate means: the target rate was actually offered, the responses actually came back in time, and the artifact on disk is what the run actually did.
+So a green gate means the configured status, latency, and **minimum achieved
+rate** thresholds passed. It does not prove the full target rate was offered:
+the example requests 100/s but accepts more than 80/s, so it can pass with
+dropped slots. Drops are reported on stderr; they are not an automatic failure
+and are not a field in the stats summary. Review the drop report separately
+before claiming the target was sustained. The artifact records the requests
+that actually completed, not unissued slots.
 
 ## CI wiring
 
@@ -248,7 +270,7 @@ perf-gate:
     - run: crust -c 'wait :3000/health --timeout 40s --interval 2s'
     - name: load gate
       run: |
-        crust -c 'range(0, 99) | parallel 10 | GET :3000/health | stats
+        crust -c 'range(0, 99) | parallel 10 | GET :3000/health --timeout 2s | stats | assert (s => s.status["200"] === s.count)
         load 30s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (s => Object.keys(s.status).every(k => k.startsWith("2"))) | assert (s => s.timedOut === 0) | assert (s => s.redirectRefused === 0) | assert (s => s.p95 < 200) | assert (s => s.rps > 80)'
     - name: keep the evidence
       if: failure()
@@ -264,7 +286,7 @@ perf-gate:
 stage('perf gate') {
   steps {
     sh 'crust -c "wait :3000/health --timeout 40s --interval 2s"'
-    sh '''crust -c 'range(0, 99) | parallel 10 | GET :3000/health | stats
+    sh '''crust -c 'range(0, 99) | parallel 10 | GET :3000/health --timeout 2s | stats | assert (s => s.status["200"] === s.count)
 load 30s 100/s | parallel 50 | GET :3000/health | stats --out load/last.json | assert (s => Object.keys(s.status).every(k => k.startsWith("2"))) | assert (s => s.timedOut === 0) | assert (s => s.redirectRefused === 0) | assert (s => s.p95 < 200) | assert (s => s.rps > 80)' '''
   }
   post {

@@ -18,8 +18,11 @@ One-shot tools (`crust_run_line`, `crust_check_line`, `crust_test_fixture`,
 `crust_test_pipes`, `crust_gen_fixtures`, `crust_verify_web_links`,
 `crust_load_run`) spawn a fresh crust child per call. The skill's warning
 here is the one an agent gets wrong by instinct: **there is no session**.
-`cwd` and `env` apply to one call and vanish — `cd`-ing in one call does not
-move the next, and an exported variable must be passed explicitly every time:
+Supported `cwd` and `env` overrides apply to one call — `cd`-ing in one call
+does not move the next. Check schemas: `crust_check_line` accepts only `line`
+(fixed 15s watchdog); generation and link verification accept `cwd` and
+`timeout_ms`, but not `env`. The run-line, test, and load tools accept `env`
+overlays on the inherited environment:
 
 ```json
 { "name": "crust_run_line", "arguments": { "line": "cat config.json | json get port", "cwd": "/srv/app" } }
@@ -34,35 +37,47 @@ id and never to assume a session outlives the conversation.
 ## Side-effect classes and teardown tiers
 
 Beyond the plane fork, the skill names four tool classes by what they touch —
-**static check** (`crust_check_line`, parses only), **execution** (arbitrary
+**static check** (`crust_check_line`, syntax-only child, possibly `sh -n`), **execution** (arbitrary
 stages, real side effects; target approval, credentials, writes and cleanup
 stay the caller's job), **network/load generation** (bounded, approved
 non-production targets only), and **long-lived resources** (held by the server
 process). And three teardown tiers: local processes are killed whole, mock
 sessions close (port released — `--state` files and databases are application
-data and stay), and application data is never touched — a container or row a
-proc created remotely survives its local teardown. The same taxonomy ships in
+data and stay), and application data is not undone by teardown — execution
+tools CAN mutate or delete it. A container or row a proc created remotely
+survives its local teardown. The same taxonomy ships in
 the `initialize` handshake's `instructions` (0.3.6), so an agent sees it
 before its first call.
 
 ## Validate before you spend a run
 
-`crust_check_line` is `--check` over the wire: it parses without running, so
-generated crust — a fixture an agent just wrote, a pipeline it just composed
-— can be linted before files and ports need to exist. The skill's standard
-loop is check, then run.
+`crust_check_line` is `--check` over the wire: it checks Crust command text
+without executing those stages, reading their data files, or sending their
+requests. It launches a child and may launch `sh -n`; it does not inspect
+TypeScript fixture contents or prove runtime success. The standard loop is
+check, then run only the approved scope. MCP startup loads normal user config,
+so starting the server itself is not side-effect-free.
 
 ## Reading failures correctly
 
-Over MCP, crust keeps its contract: a nonzero exit, a killed timeout, a failed
-`assert`, a validation error — all arrive as `isError` results with the
-child's verbatim output. The skill tells the agent to trust `isError` and read
-the text as evidence, not to re-run hoping for different colors. Two honest
-answers that read like failures and aren't:
+Nonzero child exits and killed timeouts yield `isError` with captured output;
+failed asserts propagate through the exit code. `isError: false` is not
+independent request-success proof: timed HTTP failures are records, and
+proxy violations are findings to inspect explicitly. Known-tool argument/run
+failures are tool errors; unknown tools and malformed protocol parameters
+can be JSON-RPC errors instead. Two honest answers that are not failures:
 
 - **"zero items"** — the query ran and matched nothing; zero is an answer.
 - **announced caps** — 256 KB of output per stream, tail-kept, truncation
   always stated. An announced truncation is not a corrupted run.
+
+**Load needs supplied gates.** `crust_load_run` adds no assertion when `assert`
+is omitted; an empty or all-failed measurement can exit 0. Put status first,
+then performance, for example `assert: ["s => s.status["200"] === s.count",
+"s => s.p95 < 250"]`. With an assertion, tagged empty summaries are refused.
+Window/final guards need `stats_every`; without it they short-circuit.
+Drops warn on stderr, not as automatic failures or a stats-summary field.
+Keep `expect` out of `target` when the summary must survive a status failure.
 
 ## Picking the lifecycle tool
 
@@ -82,7 +97,14 @@ answers that read like failures and aren't:
 ## Traps
 
 - **Session state does not exist between one-shot calls.** No `cd`, no
-  `export`, no aliases carried — pass `cwd`/`env` per call.
+  `export`, no aliases carried — pass only schema-supported overrides.
+- **Host configuration is not shared.** Copilot registration does not
+  register the server in another agent. Use that host's schema and tool
+  exposure controls; prefer an absolute binary path when GUI PATH differs.
+- **CLI grammar does not extend dedicated schemas automatically.** New
+  syntax is available through `crust_run_line`; named wrappers still need
+  explicit argument support. Generator prerequisite options belong in the
+  setup module; `out` is deleted/recreated and omissions need review.
 - **Relative paths in lifecycle tools resolve against the server's cwd**, not
   the agent's idea of "here". Absolute paths, or set the host's `cwd`.
 - **One call runs at a time.** A long `crust_verify_web_links` crawl blocks

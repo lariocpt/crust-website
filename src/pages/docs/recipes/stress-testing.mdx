@@ -166,8 +166,10 @@ tag keys to scope it:
 ```
 
 A bare predicate would run against every window object AND the final summary;
-the `!s.window ||` / `!s.final ||` guards scope it to one or the other (both
-are also correct without `--every` — the plain summary carries neither key).
+the `!s.window ||` / `!s.final ||` guards scope it to one or the other.
+These guards require `--every`: a plain summary carries neither key, so both
+guards short-circuit and silently skip the threshold. Without `--every`,
+use an unguarded predicate such as `assert (s => s.p95 < 200)`.
 The whole threshold story — chained asserts, baselines, exit codes, CI
 snippets — is its own recipe: [CI load gates](/docs/recipes/ci-load-gates/).
 
@@ -190,19 +192,26 @@ snippets — is its own recipe: [CI load gates](/docs/recipes/ci-load-gates/).
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Programmatic runner — embed in CI, gate on percentiles
-  import { runFixtures } from "crust/testFixture/runner";
+  // scripts/stress-gate.ts in a Crust source checkout, run with Bun.
+  // Installed binaries expose the CLI, not an importable runner package.
+  import { runFixtures } from "../src/testFixture/runner";
 
-  // One entry per fixture: { fixture, count, pass, fail, error, p50, p95,
-  // p99, minMs, maxMs, meanMs, statusCodes }. Writing JSON is the CLI's job
-  // (-o report.json); the runner returns the numbers.
-  const results = await runFixtures({
+  // The runner returns a RunReport; percentile buckets are report.stress.
+  const report = await runFixtures({
     target: "stress.crust.ts",
     count: 1000,
     threads: 32,
   });
 
-  for (const r of results) {
+  if (report.results.length === 0 || !report.stress?.length) {
+    console.error("No stress results were measured");
+    process.exit(2);
+  }
+  if (report.totals.fail + report.totals.error > 0) {
+    console.error("Fixture correctness failed", report.totals);
+    process.exit(1);
+  }
+  for (const r of report.stress) {
     if (r.p95 > 250) {
       console.error(`${r.fixture}: p95 regression, ${r.p95}ms`);
       process.exit(1);
@@ -214,7 +223,13 @@ snippets — is its own recipe: [CI load gates](/docs/recipes/ci-load-gates/).
 
 ## Randomized inputs — `random`
 
-To vary inputs across iterations, use **thunks** in `input` together with the `random` helper. A thunk (zero-argument function) is resolved + awaited per iteration; a function with at least one parameter is treated as a predicate matcher over the actual output value.
+To vary inputs across iterations, use **thunks** in `input` together with the `random` helper. A thunk (zero-argument function) is resolved + awaited per iteration. In `output`, functions with at least one parameter are matcher predicates; unary `input` functions instead receive setup context.
+
+The TypeScript example below places `stress.crust.ts` at the root of a Crust
+source checkout so the relative helper import resolves. An installed binary
+does not expose `crust/testFixture/random` as a module. For a standalone fixture
+workspace, use a reviewed local relative helper or Bun builtins; do not rely on
+bare npm imports being available in the compiled runner.
 
 > **Watch the arity.** `data: () => true` reads like "any value here" but a
 > zero-argument function is a *thunk supplying the expected value*, so it means
@@ -232,8 +247,8 @@ To vary inputs across iterations, use **thunks** in `input` together with the `r
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // stress.crust.ts
-  import { random } from "crust/testFixture/random";
+  // stress.crust.ts at the root of a Crust source checkout
+  import { random } from "./src/testFixture/random";
 
   const userIds = [1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -241,7 +256,8 @@ To vary inputs across iterations, use **thunks** in `input` together with the `r
     input: {
       url: () => `http://localhost:3000/users/${random.choice(userIds)}`,
       method: "POST",
-      body: () => ({
+      headers: { "content-type": "application/json" },
+      body: () => JSON.stringify({
         name: random.string(8),
         age: random.int(18, 99),
         tier: random.weighted([
@@ -273,21 +289,29 @@ random.shuffle(arr);
 
 ## Reading the report
 
-The report format is picked from `--out`'s extension: `.json`, `.md`, anything else is plain text. With no `--out`, you get a colored, folder-grouped summary on stdout.
+The report format is picked from `--out`'s extension: `.json`, `.md`, `.xml`
+(JUnit); anything else is plain text. With no `--out`, you get a folder-grouped
+summary on stdout, colored on a TTY.
+
+JSON is a `RunReport`: `results` contains individual fixture results,
+`filesMatched` counts matched files, and `totals` contains `pass`, `fail`,
+`error`, and summed `ms`. With `--count > 1`, `stress` is an array of per-fixture
+buckets. For example, one entry in `report.stress` has this shape
+(illustrative values, not results of a run here):
 
 ```json
 {
-  "name": "POST /users randomized",
-  "iterations": 1000,
-  "threads": 32,
-  "stress": {
-    "mean": 12.4,
-    "min": 4,
-    "max": 187,
-    "p50": 9,
-    "p95": 31,
-    "p99": 62
-  },
+  "fixture": "stress.crust.ts::POST /users randomized",
+  "count": 1000,
+  "pass": 1000,
+  "fail": 0,
+  "error": 0,
+  "meanMs": 12.4,
+  "minMs": 4,
+  "maxMs": 187,
+  "p50": 9,
+  "p95": 31,
+  "p99": 62,
   "statusCodes": { "201": 994, "409": 6 }
 }
 ```
@@ -306,7 +330,7 @@ Exit codes: `0` all pass, `1` any failure or error, `2` no files matched or bad 
 - **Bake-out runs**: `--count 1` first to confirm the fixture works at all. Once green, bump to `--count 100` to find flakiness, then `--count 1000+` for steady-state load.
 - **Thread counts**: start with `--threads = vCPUs`. Higher only helps if your service is I/O-bound.
 - **Coverage via `random.weighted`**: weight rare branches up during stress runs so they actually fire (e.g. tier `pro` 3:7 above ensures it shows up).
-- **AOT runner**: when installed via `install.sh`, the runner is AOT-compiled to a host-arch bytecode binary at `~/.crust/bin/crust-test-fixture` for fast cold-start. The shell builtin execs that binary if present and falls back to in-process dynamic import otherwise.
+- **Compiled runner**: `test-fixture` runs in-process inside the Crust binary. The installer does not install a separate `~/.crust/bin/crust-test-fixture`, and the builtin does not probe or execute that legacy path.
 
 ## Related
 

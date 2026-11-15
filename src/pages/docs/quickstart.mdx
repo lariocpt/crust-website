@@ -355,14 +355,12 @@ Runs `.crust.ts` fixture files against an HTTP service. Each file is a normal TS
   <Fragment slot="ts">
   ```ts
   // fixtures/users.crust.ts
+  // Public demo endpoint; authenticated fixtures obtain approved context in setup().
   export default {
     name: "GET /users/42 returns Lario",
     input: {
       method: "GET",
       url: "http://localhost:3000/users/42",
-      headers: async () => ({
-        Authorization: `Bearer ${await Bun.jwt.sign({ sub: "42" }, "k")}`,
-      }),
     },
     output: {
       status: 200,
@@ -406,7 +404,14 @@ See the [API smoke tests recipe](/docs/recipes/api-smoke-tests/) for a full `.pi
 
 ### gen-fixtures
 
-Generates the negative-test matrix (401/403/404 + per-field 400s and boundary violations with schema-valid base bodies) from an OpenAPI spec, as `.crust.ts` files runnable by `test-fixture` — plus capture-chained CRUD flow `.pipes` suites for qualifying collections.
+Generates supported negative cases from an OpenAPI spec as `.crust.ts` files
+runnable by `test-fixture`, plus capture-chained CRUD `.pipes` suites for
+qualifying collections. Status cases depend on documented/configured responses,
+effective security, and scope setup; request baselines must be supported.
+Operations may be omitted, and required/configured query plans or explicit
+security exclude affected CRUD flows. Review the omission reports and
+[generator limitations](/docs/recipes/gen-fixtures/) — generation is neither
+complete API coverage nor proof that the cases pass.
 
 <CodeSwitcher>
   <Fragment slot="bash">
@@ -418,7 +423,8 @@ Generates the negative-test matrix (401/403/404 + per-field 400s and boundary vi
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  import { generateFixtures } from "crust/genFixtures/generate";
+  // scripts/generate.ts in the Crust source checkout, not an npm package import.
+  import { generateFixtures } from "../src/genFixtures/generate";
 
   const { files, totalCases } = await generateFixtures({
     swagger: "./openapi.json",
@@ -449,9 +455,10 @@ Boots a `Bun.serve` instance that mocks every operation in an OpenAPI 3.x spec.
   </Fragment>
   <Fragment slot="ts">
   ```ts
-  // Programmatic — useful when embedding the mock in a test harness
-  import { loadSpec } from "crust/mockServer/loadSpec";
-  import { startServer } from "crust/mockServer/server";
+  // scripts/mock.ts in the Crust source checkout, not package paths
+  // exposed by the compiled executable.
+  import { loadSpec } from "../src/mockServer/loadSpec";
+  import { startServer } from "../src/mockServer/server";
 
   const { spec } = await loadSpec("./openapi.yaml");
   const handle = await startServer({ spec, port: 4000, stateful: true });
@@ -495,7 +502,9 @@ See the [Verify web links recipe](/docs/recipes/verify-web-links/) for the full 
 
 ## Pipeline methods (TS)
 
-The full surface of `Pipeline<T>` for any `.ts` file run by Bun:
+The `Pipeline<T>` surface in Crust's runtime. Plain Bun files must import
+`Pipeline` from a reviewed relative source module; the compiled executable
+does not expose an npm library:
 
 ```ts
 Pipeline.of(arr | asyncIterable | ReadableStream)   // construction

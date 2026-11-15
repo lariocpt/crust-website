@@ -182,7 +182,7 @@ reach for when the line involves streams, HTTP, fixtures, or load:
 
 The TypeScript surface is identical between the REPL and a script — the difference is just *where* you're typing. There is no feature that exists in the shell line but not in TS, or vice versa.
 
-One caveat about *how* TypeScript gets those names: crust installs them as globals wherever **crust** starts its runtime — `-c`, the REPL, stdin, `.crust` files, `~/.config/crust/init.ts`, and any `.ts`/`.js` file crust loads. A file run by plain `bun script.ts` never starts crust, so it gets none of them and must import what it needs (`range`, `parallel`, `GET`, `expect`, `statsStage` live in `src/sources.ts`, `src/transforms.ts`, `src/pipeline.ts`). The `from "crust/…"` paths the other pages show are the published shape; until the library is on npm, the in-repo paths are `../src/…`.
+One caveat about *how* TypeScript gets those names: crust installs them as globals wherever **crust** starts its runtime — `-c`, the REPL, stdin, `.crust` files, `~/.config/crust/init.ts`, and any `.ts`/`.js` file crust loads. A file run by plain `bun script.ts` never starts crust, so it gets none of them and must import what it needs (`range`, `parallel`, `GET`, `expect`, `statsStage` live in `src/sources.ts`, `src/transforms.ts`, `src/pipeline.ts`). Source-checkout examples use relative imports such as `../src/…` from a file under `scripts/`. The compiled executable and npm launcher do not expose those modules as a `crust/…` library.
 
 ## Next
 

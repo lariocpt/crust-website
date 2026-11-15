@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: crust-builtins
-description: crust has two namespaces — tool builtins (mock-server, test-fixture, test-pipes, gen-fixtures, verify-web-links, logs, dotenv, skills) that need a line of their own, and registered functions (base64, salt, jwt, bundle, sql, wait) that are space-separated stages. What the upstream item means to each one, why bundle(5) is a shell syntax error, how to reach crypto/FS from a lambda, and that -h/--help answers with a usage screen without running anything.
+description: crust has two namespaces — tool builtins (mock-server, test-fixture, test-pipes, gen-fixtures, verify-web-links, logs, dotenv, skills) that need a line of their own, and registered functions (base64, salt, jwt, bundle, sql, mongo, wait) that are space-separated stages. What the upstream item means to each one, why bundle(5) is a shell syntax error, how to reach crypto/FS from a lambda, and that -h/--help answers with a usage screen without running anything.
 ---
 
 **`crust-builtins`** answers the question every newcomer gets wrong in the
@@ -13,7 +13,7 @@ three answers and they are spelled almost identically.
 | | What it is | Where it runs | Argument style |
 |---|---|---|---|
 | **Tool builtin** | `mock-server`, `test-fixture`, `test-pipes`, `gen-fixtures`, `verify-web-links`, `logs`, `dotenv`, `skills` | dispatched **before** pipeline parsing, in-process, own line | subcommand style: `logs tail -F app.log` |
-| **Registered function** | `base64`, `salt`, `jwt`, `bundle`, `sql`, `wait` + anything you add with `crust.fn` | an ordinary pipeline stage, or a source when nothing is upstream | **space-separated**: `salt 16`, not `salt(16)` |
+| **Registered function** | `base64`, `salt`, `jwt`, `bundle`, `sql`, `mongo`, `wait` + anything you add with `crust.fn` | an ordinary pipeline stage, or a source when nothing is upstream | **space-separated**: `salt 16`, not `salt(16)` |
 
 `cd`, `export`, `alias`, `source`, `exit`, `history` and `help` are builtins
 too — the ones sh already has its own version of, which is why a redirect on
@@ -73,6 +73,7 @@ first slot is **your data** and each function decides what to do with it:
 | `salt [bytes] [hex\|base64\|base64url]` | one salt, size = the argument | **one salt per item**; the size is the argument *trailing* the item |
 | `jwt sign\|verify\|decode --secret <s>` | payload/token = the argument | the item **is** the payload (sign) or the token (verify/decode) |
 | `sql "<query>" [params…]` | streams rows | the query stays the one you wrote; the item **binds as the first parameter** when the line declares none |
+| `mongo "<expr>"` | streams documents from an expression on `db`, draining cursors per item | the item binds as `item` in the expression; needs the mongo-bundled binary (`@lariocpt/crust-mongo`) |
 | `wait <target> [--timeout <dur>]` | waits for the argument | the item is the target |
 | `bundle <entry> [--outfile…]` | bundles the argument | a string item **is an entrypoint** |
 
@@ -96,7 +97,7 @@ why there is no `124`.
 
 ## `-h`/`--help` answers at parse time
 
-Each of the six functions answers `-h`/`--help` with its own usage screen and
+Each registered builtin answers `-h`/`--help` with its own usage screen and
 exit 0 — **before any stage runs**, so an upstream stage with side effects
 never runs: `… | sql --help` prints usage without making the request, and the
 `touch` upstream of it never happens (measured). The scan stops at `--`, so

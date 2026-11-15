@@ -104,7 +104,7 @@ The install manifest records the package version it was written for, so after a 
 
 One consequence of shipping a compiled binary is worth knowing before you write fixtures: **the binary cannot resolve npm modules at runtime.**
 
-A `.crust.ts` fixture may import only relative modules and Bun builtins — `Bun.SQL`, `Bun.file`, `Bun.jwt`. That is a hard constraint of the compiled artifact, not a policy choice, and it's why the fixture format leans on Bun's standard library.
+A `.crust.ts` fixture may import only relative modules and Bun builtins — for example, use `Bun.SQL`, `Bun.file`, or Web Crypto's `crypto.subtle`. That is a hard constraint of the compiled artifact, not a policy choice, and it's why the fixture format leans on the runtime's standard APIs.
 
 (Globally installed npm packages are a different matter — crust can dispatch to them as pipeline stages. See [npm packages](/docs/npm-packages/).)
 

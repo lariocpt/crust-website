@@ -101,7 +101,7 @@ GET $BASE/api/things | expect 401
 GET $BASE/api/things/00000000-0000-0000-0000-000000000000 -H "authorization: Bearer $TOKEN" | expect 404
 ```
 
-The negative block is not decoration. A suite that only checks happy paths will pass against a server whose auth middleware silently fell off. `expect 401` on the bare-request line is the test that catches it. If your API scopes resources per tenant, add the 403 line too — an authenticated outsider hitting a resource they have no membership in — or better, [generate the whole rejection matrix from your spec](/docs/recipes/gen-fixtures/).
+The negative block is not decoration. A suite that only checks happy paths will pass against a server whose auth middleware silently fell off. `expect 401` on the bare-request line is the test that catches it. If your API scopes resources per tenant, add the 403 line too — an authenticated outsider hitting a resource they have no membership in — or [generate supported negative cases from your spec](/docs/recipes/gen-fixtures/). Generation is not complete coverage: effective security, scope configuration, documented/configured responses, and provable request baselines determine which cases can be emitted; review the disclosed omissions.
 
 Run one file, or a tree of them:
 
@@ -188,14 +188,12 @@ compiled runner doesn't resolve third-party npm packages).
   <Fragment slot="ts">
   ```ts
   // fixtures/users.crust.ts
+  // Public demo endpoint; authenticated fixtures obtain approved context in setup().
   export default {
     name: "GET /users/42 returns Lario",
     input: {
       method: "GET",
       url: "http://localhost:3000/users/42",
-      headers: async () => ({
-        Authorization: `Bearer ${await Bun.jwt.sign({ sub: "42" }, "k")}`,
-      }),
     },
     output: {
       status: 200,
@@ -376,7 +374,8 @@ export default {
   input: {
     method: "POST",
     url: "http://localhost:3000/users",
-    body: { name: "Lario", email: "lario@example.com" },
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Lario", email: "lario@example.com" }),
   },
   output: {
     status: 201,
@@ -410,7 +409,7 @@ Exit codes:
 
 ## Related
 
-- [Generated negative fixtures](/docs/recipes/gen-fixtures/) — derive the 401/403/404/400 matrix *and* capture-chained CRUD flow suites from your OpenAPI spec instead of writing them.
+- [Generated negative fixtures](/docs/recipes/gen-fixtures/) — derive supported negative cases and qualifying capture-chained CRUD flows. Required/configured query plans and explicit security exclude affected CRUD flows; unsupported request baselines can omit operations. Review the limitations and omission reports rather than treating generation as complete API coverage.
 - [Stress testing](/docs/recipes/stress-testing/) — same fixtures, `--count N` for percentile reports; `load` scenarios for paced runs.
 - [CI load gates](/docs/recipes/ci-load-gates/) — turn `stats` summaries into pass/fail thresholds.
 - [Mock server](/docs/recipes/mock-server/) — point smoke tests at an OpenAPI mock when the real service isn't running.
