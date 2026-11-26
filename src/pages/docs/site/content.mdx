@@ -1,0 +1,57 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: "@crust/site — content"
+description: The frontmatter contract, the exact v1 markdown feature list, heading slug rules, and how internal links and fragments are validated.
+---
+
+## Frontmatter
+
+Every `.md` file starts with a `---` YAML block: the delimiter is `---` at **column 0** (trailing space/tab allowed; `----` is not a delimiter), closed by another column-0 `---`. A leading BOM is stripped and CRLF/CR are normalized to LF before anything is counted. Parsing uses `yaml` (eemeli) with a line counter, so **every error is located with line and column in the full file's coordinates**.
+
+Built-in keys — everything else is `frontmatter.unknown-key`:
+
+| Key | Type | Notes |
+|---|---|---|
+| `title` | non-empty string | **Required.** Missing → `frontmatter.missing-title`. |
+| `description` | non-empty string | Absent → derived from the first paragraph (see below). |
+| `layout` | non-empty string | Must name a key of `layouts`. |
+| `route` | normalized route | Validated at parse time; overrides `content.route`. |
+| `draft` | boolean | Excluded from production builds. |
+| `data` | plain YAML mapping | Reaches `page.data` only through `content.parseData`. |
+
+Strictness — all of these are **errors**, collected into one `BuildError`: a missing or unclosed block (`frontmatter.missing`), a block that parses but is not a mapping (`frontmatter.not-mapping`), YAML syntax errors (`frontmatter.parse-error`, all of them), duplicate keys (`frontmatter.duplicate-key`, located), unknown keys, non-string keys, and bad values (`frontmatter.bad-value`).
+
+```ts
+const parsed = parseFrontmatter("---\ntitle: Hello\n---\n\n# Hello\n", "content/hello.md");
+parsed.frontmatter.title; // "Hello"
+parsed.body;              // "\n# Hello\n"
+parsed.bodyStartLine;     // 4 — the body's first line, in full-file coordinates
+```
+
+When `description` is absent it is derived from the first **top-level** paragraph (whitespace collapsed, cut at 160 chars on a word boundary) and the build reports `frontmatter.derived-description` as a **warning naming the derived value**. If there is no text to derive from, the description stays `""` with a `frontmatter.missing-description` warning — the build never claims a derivation that did not happen.
+
+## Markdown — the exact v1 list
+
+The feature list is exact — everything else renders as plain text:
+
+- ATX headings (`#` … `######`) with generated `id` slugs, paragraphs, bullet and ordered lists, **GFM task-list items** (`- [ ]` / `- [x]`, emitted as a disabled checkbox in a `<label>` — GitHub's shape),
+- fenced code blocks (```` ``` ```` and `~~~`, with a `language-` class) and indented code blocks, inline code,
+- links, autolinks (`<https://…>`), images, emphasis/strong, GFM strikethrough (`~~x~~`), GFM tables, blockquotes, thematic breaks.
+
+**Not enabled:** raw HTML (`html: false` — raw HTML in the source is **escaped to inert text**, never emitted), linkify, typographer/smart quotes, syntax highlighting, footnotes, definition lists.
+
+## Heading ids
+
+GitHub-style slugs: lowercase → NFKD with combining marks stripped (`"Ünïcödé"` → `unicode`) → whitespace runs to `-` → keep unicode letters, digits, `-`, `_` → collapse repeated `-` → trim `-`. An empty slug (an emoji-only heading) becomes `section`. Collisions get `-1`/`-2`/… suffixes in document order, incremented past ids already taken (`Foo`, `foo-1`, `Foo` → `foo`, `foo-1`, `foo-2`). `page.headings[].id` is the final id.
+
+## Internal links and fragments
+
+Relative `.md` links resolve against the page's **route**, are stripped of `.md`, and are rewritten to the destination route when the destination is a page. A destination that is not in the route table is `link.broken`; a destination that is a draft is `link.draft`. Both are **errors in a production build and warnings in dev** (the dev server renders drafts, so the link really resolves there). A link carrying `#fragment` requires the destination page's **final emitted HTML** to contain that id (`link.missing-fragment`, always an error).
+
+Fragment checking scans emitted bytes for **quoted id attributes only** (`id="x"` or `id='x'`), and HTML comments are stripped first. The quoted-only rule is deliberate: an unquoted `id=x` inside a code sample survives escaping byte-identical to real markup, so broadening the scan would let code samples false-satisfy fragment checks. A quoted `id="x"` can never survive escaping — a quoted match is always a real attribute. Layouts must quote their ids; a hand-written unquoted id is not recognized.
+
+## Related
+
+- [Configuration](/docs/site/config/) — `content.directory`, include/exclude globs, and `route()`.
+- [Templates](/docs/site/templates/) — what the layout does with the rendered body.
+- [Diagnostics](/docs/site/diagnostics/) — the codes above, in context.

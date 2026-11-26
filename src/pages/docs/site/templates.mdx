@@ -1,0 +1,126 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: "@crust/site — templates and the safety model"
+description: The html tagged template — one escape function, the value-range fence, the url() allowlist, and exactly what a layout context gives you.
+---
+
+Layouts build documents with the `html` tagged template. A tagged template cannot enforce rules by inspecting its literal (``html`<scr${"i"}pt>` `` defeats any literal check), so the enforcement is a **value-range fence**: every interpolated value's character range is recorded (recursively, through arbitrary nesting), and a post-render pass over the assembled document fails the build when a value range crosses a protected boundary.
+
+## Escaping
+
+One escape function, applied to every interpolated value: `& < > " '` → entities, with `&` replaced first so emitted entities are never double-escaped. A value can never contribute a raw structural character — which also kills entity smuggling (`java&#10;script:`) and neutralizes RCDATA elements like `<title>`/`<textarea>`.
+
+```ts
+const doc = html`<p>${'a < b & "c"'}</p>`; // <p>a &lt; b &amp; &quot;c&quot;</p>
+```
+
+## What may be interpolated (`HtmlValue`)
+
+`string`, finite `number` (`0` renders `"0"`, never falsy-dropped), `false`/`null`/`undefined` (render nothing), `Html`, and arrays of those (flattened, joined with no separator). **Everything else throws a `render.bad-value` diagnostic before any `toString`/`valueOf` runs**: `true`, `NaN`, ±`Infinity`, Promises and other thenables (values are never awaited), `Symbol`, `bigint`, functions, class instances, plain objects. A value that is its own ancestor (a cycle) is rejected. Nesting is capped at depth 64.
+
+```ts
+// The TYPE system already excludes `true` (and objects, and thenables) from
+// HtmlValue; the runtime check is what catches values that arrive untyped —
+// from JS callers or `unknown` frontmatter data:
+try {
+  const value: unknown = true;
+  finalizeDocument(html`<p>${value as unknown as HtmlValue}</p>`, { siteUrl: "https://example.dev" });
+} catch (e) {
+  // BuildError carrying the render.bad-value diagnostic
+}
+```
+
+## What the fence enforces
+
+These are build errors, checked against the final document and the tracked ranges (all linear-time scans):
+
+| Code | Rule |
+|---|---|
+| `fence.script-body` / `fence.style-body` | Any non-whitespace body of a `<script>`/`<style>` element — literal or tracked (a whitespace-only body passes, so `<script src="…"></script>` is fine). Inline script and style are banned outright — all JS/CSS ships as hashed assets. |
+| `fence.comment-value` | A tracked value inside a `<!-- … -->` comment. |
+| `fence.dynamic-tag-name` / `fence.dynamic-attr-name` | An interpolated value in a tag-name or attribute-name position. |
+| `fence.event-handler` | Any `on*` attribute, however it got there. |
+| `fence.unquoted-attribute` | A present attribute value without quotes. |
+| `fence.unterminated` | An opening attribute quote never closed. |
+| `fence.url-attribute` | A URL-bearing attribute (`href src action formaction poster cite background data`) whose tracked value fails the URL policy — so forgetting `url()` is not a hole. |
+| `fence.ping-attr` / `fence.srcdoc-attr` | `ping` and `srcdoc` are banned outright. |
+
+Documented **convention only** (a build-time fence cannot enforce them): SVG foreign-content semantics, deploy-time response headers, and supply-chain trust of what you import.
+
+## The `url()` policy
+
+`url(value, opts)` (alias `validateUrl`) is the one policy for anything landing in a URL position; `ctx.url(value)` is the same policy with `opts` bound to the page. It returns the value unchanged when valid and throws a located diagnostic when not. Allowed schemes: `http`, `https`, `mailto`, `tel`, `sms`. Rejected **before `new URL()` even runs** — because a parser that "fixes" input is a fence that misses attacks: control characters and spaces (`url.control-char`), quotes/backtick/backslash (`url.bad-char`), `&#` and named entity references (`url.entity-escape`), protocol-relative `//host/…` (`url.protocol-relative`), and anything else outside the scheme allowlist or without a host (`url.scheme`, `url.no-host`, `url.userinfo`).
+
+```ts
+const opts = { siteUrl: "https://example.dev", pageRoute: "/guide" };
+url("https://example.dev/docs/intro", opts); // returned unchanged
+url("mailto:hello@example.dev", opts);
+try {
+  url("java\tscript:alert(1)", opts); // url.control-char
+} catch (diagnostic) {
+  // a Diagnostic object: { code, message, severity }
+}
+```
+
+The fence re-runs this same policy over every URL-bearing attribute in the final output, so a hand-written `href=${value}` that skipped `url()` is still caught.
+
+## The layout context
+
+A layout is `(ctx: LayoutContext) => Html | Promise<Html>`. The context is bound to exactly one render — calling a helper after the render finished throws, and concurrent renders are isolated.
+
+| Member | Exact semantics |
+|---|---|
+| `ctx.page` | The page, **deep-frozen**: `route`, `canonicalUrl`, `layout`, `title`, `description`, `headings`, `data`, `draft`, `body`, `links`, `warnings`, `diagnostics`, `sourcePath`, `relativePath`. |
+| `ctx.content` | The page's rendered markdown body (`Html`). |
+| `ctx.site` | `{ url }` — the site base URL, path prefix included. |
+| `ctx.head()` | The head block, see below. |
+| `ctx.stylesheet(name)` / `ctx.script(name)` | The asset tag for a manifest name, see below. |
+| `ctx.url(value)` | The URL policy with this page as base (relative refs resolve against `site + route`). |
+| `ctx.publicAsset(path)` | The public file's URL — a **file path, not a URL**; traversal is rejected before any filesystem access (`public-asset.traversal`), a missing file is `public-asset.missing`. |
+| `ctx.readText(path)` | A confined text read: the root is the **realpath of the config directory**, the final realpath must stay inside it (a symlink never extends a boundary), 10 MiB cap checked before the bytes are read. |
+
+```ts
+const page: Layout = (ctx) => html`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    ${ctx.head()} ${ctx.stylesheet("site")}
+  </head>
+  <body class="${ctx.page.draft ? "draft" : ""}">${ctx.content}</body>
+</html>`;
+```
+
+### `head()`
+
+Emits **exactly seven tags**: `<title>`, the description meta, the canonical link, `og:title`, `og:description`, `og:url`, `og:type=website`. It **never emits `charset` or `viewport`** — the layout hand-writes those; a later validation step errors when the emitted document does not carry exactly one `<meta charset>`, one `<title>`, and one `rel="canonical"` (the `metadata.*` codes). A **second** `head()` call in the same render emits nothing and records `head.duplicate` — a build-error diagnostic, not a throw.
+
+### `stylesheet(name)` and `script(name)`
+
+Both take a **manifest map key** (never a path). The first call for a name in a render returns the full tag; repeats return an empty `Html`. The tag's kind follows the **manifest entry's extension** — `.js` → `<script defer src>`, `.css` → `<link rel="stylesheet" href>` — never which helper you called. An unknown name records `asset.unknown-entrypoint` and aborts that page's render.
+
+```ts
+// First call in a render emits the tag; the repeat emits "" (dedup per render):
+const head: Layout = (ctx) =>
+  html`<head>${ctx.stylesheet("site")}${ctx.stylesheet("site")}</head>`;
+```
+
+### `readText(path)`
+
+```ts
+const withNotice: Layout = async (ctx) => {
+  const notice = await ctx.readText("partials/notice.md");
+  return html`<footer>${notice}</footer>`;
+};
+```
+
+A path that resolves outside the config directory is `read-text.escape`; inside but missing/unreadable/not-UTF-8 is `read-text.failed`; over the cap is `read-text.toobig`. The final realpath is recorded as a dependency of the page's render.
+
+## Failure semantics
+
+A helper failure records a page-attributed diagnostic and aborts **that page's render only**; the pass continues with the other pages, and the engine never throws out of a render pass. A layout that throws → `render.threw`; a layout returning a non-Html → `render.bad-result`; a fence violation → the fence diagnostics re-stamped to the page. Everything still fails the build — a page that did not render is never silently dropped.
+
+## Related
+
+- [Configuration](/docs/site/config/) — declaring assets and layouts.
+- [Diagnostics](/docs/site/diagnostics/) — how these failures reach your terminal.
+- [Content](/docs/site/content/) — what `ctx.content` actually contains.

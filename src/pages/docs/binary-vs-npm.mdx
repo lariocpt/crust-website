@@ -108,7 +108,19 @@ A `.crust.ts` fixture may import only relative modules and Bun builtins — for 
 
 (Globally installed npm packages are a different matter — crust can dispatch to them as pipeline stages. See [npm packages](/docs/npm-packages/).)
 
+## The one thing that is never in the binary: `@crust/site`
+
+The same compiled-artifact wall has one product-level consequence: **the site generator is not part of the crust binary, in any variant.** `@crust/site` ships as a plain npm package run under Bun (`bunx @crust/site build`), because a site is built from files that must be imported from disk at run time — your `site.config.ts`, your layouts — and a compiled binary cannot resolve those imports. The binary carries only a `site` redirect stub: `crust site build` prints the redirect and exits 1, never a silent 0.
+
+Two honesty notes that follow from this split:
+
+- **Windows.** The crust binary stays linux/darwin-only, but `@crust/site` **does** support Windows under plain `bun`/`bunx` — its CI runs the suite on `windows-latest`. "No Windows binary" has never been true of the whole crust family, and this is the half people miss.
+- **No shared runtime.** Installing crust does not install the site generator, and vice versa. They ship from the same repo and the same release tag, but they are independent packages with independent versions.
+
+See [the site docs](/docs/site/intro/) for the generator itself.
+
 ## Related
 
 - [npm packages](/docs/npm-packages/) — using installed packages as pipeline stages.
+- [@crust/site — intro](/docs/site/intro/) — the site generator: npm/Bun-only, never in the binary.
 - [Quickstart](/docs/quickstart/) — install and first commands.

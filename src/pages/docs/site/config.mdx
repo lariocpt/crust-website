@@ -1,0 +1,138 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: "@crust/site — configuration"
+description: Every key of defineSite — site URL, content discovery, layouts, assets, output — plus routing rules and the normative URL ↔ file table.
+---
+
+`defineSite(config)` validates the whole config at definition time and throws a `BuildError` carrying **every** problem found (never just the first). Unknown keys at any level are errors, not ignored extras — a typo'd key that silently does nothing is a false pass. Relative paths resolve against the **config file's directory**, never the process cwd.
+
+```ts
+// The smallest legal config: one layout, one content directory, one output.
+const config = defineSite({
+  site: "https://example.dev",
+  content: { directory: "content", defaultLayout: "base" },
+  layouts: { base: () => html`<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>` },
+  output: { directory: "dist" },
+});
+```
+
+## `site` — required
+
+An absolute `http(s)` URL. It **may include a path prefix** (GitHub Pages under `/docs`), and must **not** end in `/` — a trailing slash is an error, not stripped. The value must already be in canonical form: anything the WHATWG parser would silently normalize (padding, a dangling `?` or `#`, the default port, an upper-case host, userinfo) is a `config.site` error, because `canonicalUrl` is plain concatenation of this value.
+
+```ts
+canonicalUrl("https://example.dev/docs", "/guide"); // "https://example.dev/docs/guide"
+canonicalUrl("https://example.dev", "/");           // "https://example.dev/"
+```
+
+## `content` — required
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `directory` | path string | — (required) | Relative to the config file; absolute allowed. |
+| `include` | `string[]` | `["**/*.md"]` | Globs run with `cwd = content.directory`. |
+| `exclude` | `string[]` | `[]` | Exclude **wins** over include. |
+| `defaultLayout` | string | — (required) | Must be a key of `layouts`. |
+| `route` | `(arg: { relativePath: string }) => string` | none | Maps a source file to a route. |
+| `parseData` | `(value: unknown, ctx: { sourcePath: string }) => unknown` | none | Data-layer hook; may be async. |
+
+Discovery is deterministic: lexicographic (code-unit) order, dotfiles excluded unless the include pattern itself starts with `.`, symlinks never followed, only `.md` files kept. `relativePath` is posix, relative to `content.directory`, extension stripped, case preserved.
+
+`route()` **must return an already-normalized route** — there is no auto-normalization. A bad return (or a throw) is an error naming the page; without `route()` and without frontmatter `route`, a page gets `route.missing`.
+
+```ts
+const content: SiteConfig["content"] = {
+  directory: "docs",
+  defaultLayout: "doc",
+  exclude: ["private/**"],
+  route: ({ relativePath }) => (relativePath === "index" ? "/" : `/docs/${relativePath}`),
+};
+```
+
+`parseData` receives the page's raw frontmatter `data` (or `{}`) and its `sourcePath`; a returned Promise is awaited. It **must resolve to a plain object** — a throw, a rejection, or a non-object is `frontmatter.data-invalid`. Without `parseData`, `page.data` is always `{}` even when the frontmatter carried `data` — raw data is never passed through unvalidated.
+
+```ts
+const content: SiteConfig["content"] = {
+  directory: "content",
+  defaultLayout: "base",
+  parseData: (data) => {
+    if (typeof data === "object" && data !== null && "tags" in data) return data;
+    return {};
+  },
+};
+```
+
+## `layouts` — required
+
+A non-empty registry of layout functions (`name => (ctx) => Html`). A non-function value, an empty registry, or a `defaultLayout` naming a key that is not here is `config.layout-type`; a page whose layout — its frontmatter `layout`, or `defaultLayout` when the frontmatter has none — names a key that is not here is `layout.unknown`, which lists the available keys. See [Templates](/docs/site/templates/) for what a layout receives.
+
+## `assets` — optional
+
+| Key | Notes |
+|---|---|
+| `scripts` | `name → entrypoint path`. |
+| `styles` | `name → entrypoint path`. |
+| `publicDirectory` | Copied to the output root, unhashed — **no cache-busting**; put a fingerprint in the file name yourself if you need one. |
+
+Names must match `/^[A-Za-z0-9_-]+$/` (`config.asset-name`) and **scripts and styles share ONE namespace** — the same name in both maps is `config.asset-name-clash`, because there is one manifest and one output directory. Each entrypoint is bundled to exactly one hashed file, `assets/<name>-<sha256-16>.<ext>`; an entrypoint that code-splits or imports an asset is refused with `asset.entrypoint-chunked`.
+
+## `output` — required
+
+| Key | Default | Notes |
+|---|---|---|
+| `directory` | — (required) | Relative to the config file. |
+| `trailingSlash` | `"never"` | v1 accepts only `"never"` (typed as an open union for future widening). |
+
+The output directory must not overlap its own inputs (`config.output-overlap`): it may not contain or be contained by `content.directory` or `assets.publicDirectory`, it may not contain any asset entrypoint, and it may not be the config directory itself. An output *inside* the project directory (the common `dist/`) is explicitly allowed.
+
+## `sitemap`, `robots`, `dev`, `lang` — optional
+
+| Key | Default | Notes |
+|---|---|---|
+| `sitemap` | `true` | Emit `sitemap.xml` (no `<lastmod>` — timestamps would break byte-identical rebuilds). |
+| `robots` | none | `{ indexable: boolean }`; absent means **no `robots.txt` at all**. |
+| `dev.hostname` | `"localhost"` | Dev server bind host. |
+| `dev.port` | ephemeral | Integer 1..65535 (`config.port` otherwise). A bound port is an error — v1 never auto-increments. |
+| `lang` | `"en"` | BCP 47. Stored on the resolved config; the layout hand-writes the `<html lang>` attribute — v1 injects it nowhere. |
+
+## Routing and the URL ↔ file table
+
+Routes are file-write inputs, so validation is strict and total: `normalizeRoute` **never auto-normalizes** — a route that is not already in normal form is an error naming the offender. Rejected outright: query/fragments, `.`/`..` segments (raw or hidden by encoding), control characters, backslashes, drive letters, and Windows reserved device names.
+
+```ts
+normalizeRoute("/guide/intro", { sourcePath: "content/guide/intro.md" }); // unchanged
+isNormalizedRoute("/a/"); // false — a trailing slash is not a route
+routeToFile("/"); // "index.html"
+routeToFile("/guide/intro"); // "guide/intro.html"
+```
+
+One resolver is shared by the emitter, the sitemap, `ctx.url()`, the link validator, and the dev server, so they cannot drift:
+
+| URL | File | Notes |
+|---|---|---|
+| `/` | `index.html` | |
+| `/a` | `a.html` | |
+| `/a/b` | `a/b.html` | |
+| `/a/` | — | **404 in v1** (an empty segment is not a route). |
+| `/a.html` | `a.html` | The **lenient form**, answered by the dev server; an exact route `/a.html` beats it. The canonical URL stays extensionless. |
+| unmatched | `404.html` | Served with real HTTP 404, never a 200 with a 404 body. |
+
+Duplicate routes are caught in two passes: exact duplicates (`route.duplicate`, naming **all** colliding source files) and a case-insensitive pass (`route.case-collision`) that always runs — the same config must not build on Linux and half-emit on a case-insensitive filesystem.
+
+```ts
+const diags = findRouteCollisions([
+  { route: "/a", sourcePath: "a.md" },
+  { route: "/A", sourcePath: "A.md" },
+]);
+// one route.case-collision diagnostic naming both files
+```
+
+## The 404 page
+
+Every build emits a generated `404.html`, rendered through `content.defaultLayout` like any page, with fixed `title: "Not found"` and `route: "/404"`. It is excluded from the sitemap and is **not a link target** — a link to `/404` is `link.broken` — while its own links are validated like any page's. No config knob in v1.
+
+## Related
+
+- [Quickstart](/docs/site/quickstart/) — a working config end to end.
+- [Content](/docs/site/content/) — what the content directory must contain.
+- [Templates](/docs/site/templates/) — the layout side of the config.

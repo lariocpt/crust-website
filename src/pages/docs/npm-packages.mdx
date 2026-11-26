@@ -316,6 +316,10 @@ crust.onBeforeStart = async () => {
 
 Each repo can then ship its own `.crust/init.ts` with project-specific `crust.fn` calls.
 
+## Not a stage: `@crust/site`
+
+One published package deliberately does **not** participate in any of the above: `@crust/site`, the site generator. It ships from the same repo and the same release tag as crust, but it is a Bun CLI and library (`bunx @crust/site build`), not a pipeline stage — it has no default export at all (the entry is named config and CLI helpers, `defineSite` and `build`), so auto-dispatch would have nothing to call it with. Install it per project (`bun add -d @crust/site`), not globally, and never expect `crust site` to do more than redirect: the compiled binary cannot import a user's `site.config.ts` from disk, so it carries only a stub that points at the package. See [the site docs](/docs/site/intro/).
+
 ## Related
 
 - [Quickstart — Builtins](/docs/quickstart/#builtins) — the in-process builtins (`cd`, `export`, `alias`, etc.) that always beat your `crust.fn` names.

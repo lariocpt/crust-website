@@ -1,0 +1,51 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: "@crust/site — intro"
+description: What @crust/site is — the crust site generator as a plain npm package under Bun, why it is deliberately not part of the compiled crust binary, and what that means for install and Windows.
+---
+
+`@crust/site` is the crust site generator: a static-site compiler with a **fenced template API** (interpolated values are escaped and range-tracked; a post-render fence fails the build when a value crosses a script/comment/attribute boundary), strict content validation that never reports a false pass, content-hashed assets, and a publish swap that never corrupts your last good build.
+
+It is a sibling of the crust test stack, not a feature of it: same repo, same release tag, same "no false passes" rule — but a separate package with its own semver and its own runtime contract.
+
+## Install and requirements
+
+- **Bun >= 1.4.** The package is TypeScript source executed by Bun directly (`bunx @crust/site build`); there is no compiled artifact and no transpile step.
+- **Windows is supported for this package** under plain `bun`/`bunx`. The crust *binary* stays linux/darwin-only — see [Windows](#windows) below.
+
+```bash
+bun add -d @crust/site     # or: bunx @crust/site build (no install)
+bunx @crust/site build
+bunx @crust/site dev
+```
+
+Run it from the directory that holds `site.config.ts`, or pass the config path explicitly: `bunx @crust/site build [configFile]`. Exit codes follow the crust tool convention: **0** ok/help, **1** runtime failure, **2** argument error.
+
+## Why it is not in the crust binary
+
+The crust binary is a compiled Bun executable, and a compiled Bun binary cannot resolve bare npm specifiers from files outside its own bundle — that is a measured constraint of the artifact, not a policy choice (it is the same wall that forces the mongo variant to statically bundle the driver). A site is *made of* exactly those files: your `site.config.ts`, your layouts, and your partials are imported from disk at run time, and the generator itself depends on third-party npm packages (`markdown-it`, `yaml`). No binary variant can carry a builder whose inputs must be imported from the user's project. So the generator ships as a plain npm package run under Bun, and the crust binary carries only a `site` **redirect stub**:
+
+```bash
+crust site build
+# site: site building is not part of the crust binary — the generator ships as the @crust/site package, run under Bun. Install it and run: bunx @crust/site build [site.config.ts] (or bunx @crust/site dev for the dev server)
+```
+
+The stub exits **1** — never a silent 0, never `sh`'s 127 — because a tool that exits 0 on failure is worse than a slow one. `crust site --bogus` exits 2 with the usage, like every other crust tool builtin.
+
+## Windows
+
+Windows support means **this package under `bun`/`bunx`**. The prebuilt crust binaries stay linux/darwin-only; the `site` builtin in the binary is only a redirect. The package's CI runs its suite on `windows-latest`, and the behaviors that fall out of it ship on every platform: the publish swap has a mandatory copy fallback (locked files → `EPERM`), duplicate-route detection runs a case-insensitive pass on top of the exact one, Windows reserved names (`CON`, `NUL`, `COM1`…) are rejected at route validation everywhere, and the dev-server watcher uses polling as its primary path there.
+
+## The contract
+
+Everything on the public surface follows one contract (`contractVersion: 1`): additive fields and enum widening are minor changes; renames, removals, and narrowing are major; **diagnostic codes are never repurposed**.
+
+## Where to next
+
+- **[Quickstart](/docs/site/quickstart/)** — a complete site in one config file, built end to end.
+- **[Configuration](/docs/site/config/)** — every config key, routing, and the URL ↔ file table.
+- **[Templates](/docs/site/templates/)** — the `html` runtime, the safety model, and the `url()` policy.
+- **[Content](/docs/site/content/)** — frontmatter, markdown features, heading slugs, internal links.
+- **[Diagnostics](/docs/site/diagnostics/)** — severity rules and the codes you'll actually hit.
+
+The canonical full reference is **`docs/USAGE.md` inside the package** — after install it sits at `node_modules/@crust/site/docs/USAGE.md`. These pages are a curated mirror; every example on them is type-checked against the package's public types in CI, and where anything here and the package's own reference disagree, the package wins.

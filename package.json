@@ -11,6 +11,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "check-links": "node scripts/check-links.mjs",
+    "lint:site": "node scripts/lint-site-examples.mjs",
     "preview": "astro preview",
     "astro": "astro"
   },
