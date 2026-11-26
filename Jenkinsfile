@@ -100,16 +100,41 @@ pipeline {
                     CRUST=/srv/apps/tools/crust/latest/crust
                     test -x "$CRUST" || { echo "crust binary not found at $CRUST"; exit 1; }
 
+                    # Grammar:site — the @crust/site pages are TypeScript examples, which
+                    # `crust --check` cannot validate, so lint-site-examples.mjs type-checks
+                    # every ```ts fence against the real package (the same bridge
+                    # packages/site/scripts/lint-docs.mjs is for the package's own docs).
+                    # OPS: provision this path as the ROOT of a crust repo checkout — the
+                    # script resolves bun-types and tsc by walking UP from
+                    # <mount>/packages/site to <mount>/node_modules (the repo's own tree;
+                    # the website's has neither), so the copy below must preserve that
+                    # nesting: /w/site-pkg becomes the repo root and the script gets
+                    # /w/site-pkg/packages/site. Same mount plane as the crust binary
+                    # above. Until it exists the script prints a LOUD "SKIPPED (site
+                    # package not found at …)" and exits 0: visible, so the gap cannot
+                    # rot unnoticed, but it does not hold every PR hostage to a mount
+                    # that is not provisioned yet.
+                    SITE_PKG=/srv/apps/tools/crust/repo
+
                     # Same sibling-container shape as Build (workspace is a named volume,
                     # so docker cp both ways — never -v "$PWD:/w").
                     CID=$(docker create -w /w oven/bun:1 sh -c '
                         set -eu
                         cd /w
                         bun scripts/lint-examples.mjs /w/crust-bin
+                        # When /w/site-pkg/packages/site is absent (mount not provisioned)
+                        # the script itself prints the loud skip and exits 0 — the message
+                        # names the path it looked for.
+                        bun scripts/lint-site-examples.mjs /w/site-pkg/packages/site
                     ')
                     trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
                     docker cp "$PWD/." "$CID:/w" >/dev/null
                     docker cp "$CRUST" "$CID:/w/crust-bin" >/dev/null
+                    if test -d "$SITE_PKG"; then
+                        docker cp "$SITE_PKG" "$CID:/w/site-pkg" >/dev/null
+                    else
+                        echo "NOTE: no site package mount at $SITE_PKG — lint-site-examples will SKIP loudly"
+                    fi
                     docker start -a "$CID"
                 '''
             }

@@ -1,0 +1,134 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: "@crust/site — quickstart"
+description: A complete @crust/site project in one config file and a content directory — the exact fixture the package's own test suite builds end to end.
+---
+
+A complete site is one config file, a content directory, and (optionally) script/style entrypoints and a public directory. This example is the fixture at `tests/fixtures/docs-example/` in the package's repository — its docs gate type-checks it and its test suite builds it end to end, so it is known to work.
+
+## The config
+
+`site.config.ts`, in the project root:
+
+```ts
+import type { LayoutContext } from "@crust/site";
+import { defineSite, html } from "@crust/site";
+
+export default defineSite({
+  site: "https://example.dev",
+  lang: "en",
+  content: {
+    directory: "content",
+    defaultLayout: "base",
+    route: ({ relativePath }) => (relativePath === "index" ? "/" : `/${relativePath}`),
+  },
+  layouts: {
+    base: (ctx: LayoutContext) => html`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="${ctx.publicAsset("favicon.svg")}" />
+    ${ctx.head()} ${ctx.stylesheet("site")} ${ctx.script("main")}
+  </head>
+  <body>
+    <main>${ctx.content}</main>
+    <footer><a href="${ctx.url("/")}">Home</a></footer>
+  </body>
+</html>`,
+  },
+  assets: {
+    styles: { site: "assets/site.css" },
+    scripts: { main: "assets/main.ts" },
+    publicDirectory: "public",
+  },
+  output: { directory: "dist" },
+  robots: { indexable: true },
+});
+```
+
+## The content
+
+Every `.md` file starts with a `---` frontmatter block with at least a `title`:
+
+```
+---
+title: Home
+description: The home page.
+---
+
+# Welcome
+
+Start with the [getting-started guide](./guide/getting-started.md).
+```
+
+Relative `.md` links resolve against the page's **route** (not the source path) and are rewritten to the destination route; a `.md` link to a page that does not exist fails the build with `link.broken`.
+
+## Build
+
+```bash
+bunx @crust/site build
+```
+
+```
+dist/
+├── index.html                  # route /
+├── guide/getting-started.html  # route /guide/getting-started
+├── 404.html                    # generated, see below
+├── sitemap.xml
+├── robots.txt
+├── favicon.svg                 # copied verbatim from public/
+└── assets/
+    ├── main-8f1a92802d4c9533.js    # name + sha256-16 of the final bytes
+    └── site-4302d8f61557770f.css
+```
+
+The hashes are stable across machines and working directories; a rebuild with unchanged inputs is **byte-identical** — lexicographic ordering, no timestamps, LF-only output.
+
+A page with `draft: true` in its frontmatter is **not** in the output — production builds never render drafts. The dev server does, with a banner.
+
+## The dev server
+
+```bash
+bunx @crust/site dev
+```
+
+- **Drafts are rendered** in dev, each with a fixed DRAFT banner, and `link.draft`/`link.broken` are warnings there (they really resolve in dev).
+- **No HMR, ever.** A content change triggers a debounced full rebuild into a fresh staging tree; the serve root is swapped only on success, so a failed rebuild prints its diagnostics while the **last complete build keeps serving**. The browser picks the new tree up on a full reload.
+- It **never writes to `output.directory`** — the output is only ever written by a production build's publish swap.
+- A **code or config change** restarts the dev worker (a fresh process is the only way to re-import transitively imported code).
+
+## The programmatic API
+
+The CLI is a thin wrapper over `build()`, which you can call from your own scripts:
+
+```ts
+const result = await build({ configFile: "./site.config.ts" });
+result.contractVersion; // 1
+result.outputDirectory; // absolute
+result.pages; // [{ route, sourcePath, file }] — content pages by route; the generated 404 is NOT here
+result.assets; // { name: "assets/<name>-<hash>.<ext>" }
+result.durationMs;
+result.warnings; // every warning-severity diagnostic, sorted
+```
+
+A failed build rejects with a `BuildError` carrying **every** collected diagnostic — and leaves the previous output exactly as it was:
+
+```ts
+try {
+  await build({ configFile: "./site.config.ts" });
+} catch (e) {
+  if (e instanceof BuildError) {
+    for (const d of e.diagnostics) console.error(`${d.severity}[${d.code}]: ${d.message}`);
+  } else {
+    throw e;
+  }
+}
+```
+
+## Related
+
+- [Configuration](/docs/site/config/) — every key of `defineSite`, routing, and the URL ↔ file table.
+- [Templates](/docs/site/templates/) — what `html` escapes and what the fence enforces.
+- [Content](/docs/site/content/) — the frontmatter contract and the exact markdown feature list.
+- [Diagnostics](/docs/site/diagnostics/) — how failures are reported and which codes you'll hit first.

@@ -1,0 +1,73 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: "@crust/site — diagnostics"
+description: How @crust/site reports problems — the Diagnostic shape, severity rules that vary by mode, CLI exit codes, and the codes you will actually hit.
+---
+
+Every problem the package reports is a `Diagnostic`. A failed build rejects with a `BuildError` carrying **all** collected diagnostics, sorted by `sourcePath`, then `line`, then `code` (code-unit order — locale collation would make output machine-dependent). The CLI formats each as `severity[code]: message` plus a ` --> path:line:col` line, on stderr, with ANSI only when stderr is a TTY.
+
+```ts
+const d: Diagnostic = {
+  code: "link.broken",
+  message: 'internal link on line 7 of "content/index.md" points at "/gone"',
+  severity: "error",
+  sourcePath: "content/index.md", // always posix
+  line: 7, // 1-based, in the named file's coordinates
+};
+```
+
+## Severity rules
+
+- **`link.broken` and `link.draft` are errors in a production build and warnings in dev** — the dev server serves drafts and shows the rest of the site, so the link really resolves there.
+- **Warnings everywhere:** `asset.unused`, `frontmatter.derived-description`, `frontmatter.missing-description`, `content.no-pages`.
+- **Everything else is an error in every mode.** No false passes: a warning is only ever attached to a problem that genuinely does not break the emitted site.
+
+CLI exit codes: **0** ok/help, **1** runtime failure (a failed build prints every diagnostic on stderr and exits 1 — stdout carries no diagnostics, ever), **2** argument error. `dev` exits 130 on Ctrl-C.
+
+## The codes you will actually hit
+
+The full vocabulary is **78 codes** and lives in the package's own reference — `docs/USAGE.md` inside the installed package (`node_modules/@crust/site/docs/USAGE.md`, the *Diagnostics* section). That table is generated-against: the package's docs gate fails if a code exists in the registry but is missing from the table, or vice versa. Codes are **never repurposed or removed**. It is deliberately not duplicated here — a second hand-maintained copy is exactly the rot this project fights.
+
+The fifteen below are the ones a first site actually runs into:
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `config.unknown-key` | error | A config key that is not in the schema, at any level — typos are errors, not ignored extras. |
+| `config.site` | error | `site` is not a canonical absolute http(s) URL (trailing slash, query/fragment, userinfo, non-canonical form). |
+| `config.load` | error | The config file could not be imported, or its default export is not a `defineSite()` result. |
+| `config.layout-type` | error | A layout value is not a function, the registry is empty, or `defaultLayout` names no layout. |
+| `config.output-overlap` | error | The output directory overlaps an input root (content, public dir, entrypoints, or the config dir itself). |
+| `route.duplicate` | error | The same route is produced by several files; the message names all of them. |
+| `route.case-collision` | error | Two routes differ only by case — they collide on case-insensitive filesystems, so this fires everywhere. |
+| `frontmatter.missing` | error | No column-0 `---` delimiter at the top of a `.md` file, or the block is never closed. |
+| `frontmatter.missing-title` | error | The required `title` key is absent. |
+| `frontmatter.unknown-key` | error | A frontmatter key outside the built-ins (`title`, `description`, `layout`, `route`, `draft`, `data`). |
+| `frontmatter.derived-description` | warning | `description` was absent and derived from the first paragraph; the message carries the derived value. |
+| `link.broken` | error in build / warning in dev | An internal link's destination is not a page of the site (including a link to the generated `/404`). |
+| `link.missing-fragment` | error | A `#fragment` link whose destination's emitted HTML has no such quoted id. |
+| `metadata.charset-missing` | error | The emitted document has no `<meta charset>` — the layout must hand-write it; `head()` never emits it. |
+| `asset.unknown-entrypoint` | error | `script()`/`stylesheet()` named a manifest key that was never declared in `assets`. |
+
+Beyond these, the families you'll meet as the site grows: `fence.*` (template safety violations — see [Templates](/docs/site/templates/)), `url.*` (URL policy rejections), `metadata.*` (head invariants), `frontmatter.*` (content strictness — see [Content](/docs/site/content/)), and `render.threw` (your layout threw; the message carries the error and stack).
+
+## Reading a failed build
+
+```ts
+try {
+  await build({ configFile: "./site.config.ts" });
+} catch (e) {
+  if (e instanceof BuildError) {
+    for (const d of e.diagnostics) console.error(`${d.severity}[${d.code}]: ${d.message}`);
+  } else {
+    throw e;
+  }
+}
+```
+
+A failed build never publishes: staging is deleted and the previous output stays exactly as it was.
+
+## Related
+
+- [Templates](/docs/site/templates/) — the fence and URL codes in context.
+- [Content](/docs/site/content/) — the frontmatter codes in context.
+- [Configuration](/docs/site/config/) — the config and route codes in context.
