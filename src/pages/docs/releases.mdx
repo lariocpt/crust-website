@@ -1,0 +1,65 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Releases
+description: Crust 0.4.0 release scope, exact-version installation, and binary provenance.
+---
+
+## Crust 0.4.0
+
+Crust 0.4.0 is a coordinated version and documentation milestone. It retains
+the runtime, fixture formats, and MCP protocol from 0.3.9; it does not
+introduce a new runtime capability or remove an existing one.
+
+Request planning, effective security and query prerequisites, conservative
+baselines, and whole-flow omissions **already shipped in 0.3.9**. See
+[generated fixtures](/docs/recipes/gen-fixtures/) and
+[contract review](/docs/contract-review/) for their limits. Generated cases
+are not evidence of application execution or complete API coverage.
+
+The release includes the clean and MongoDB-bundled binaries for Linux and
+macOS on x64 and arm64, plus the matching public npm launchers. See the
+[0.4.0 release](https://github.com/lariocpt/crust/releases/tag/v0.4.0)
+and [source changelog](https://github.com/lariocpt/crust/blob/main/CHANGELOG.md).
+
+## Install an exact version
+
+Choose **one** package: both expose the same `crust` command.
+
+```bash
+# Clean binary
+npm install --save-dev --save-exact @lariocpt/crust@0.4.0
+```
+
+For the bundled MongoDB driver, install the alternative instead:
+
+```bash
+npm install --save-dev --save-exact @lariocpt/crust-mongo@0.4.0
+```
+
+The npm package is a launcher that verifies the matching release binary's
+published SHA-256 before use. It is not a TypeScript library.
+See [compiled binary vs npm module](/docs/binary-vs-npm/) for distribution
+and runtime-import boundaries.
+
+After installation, inspect the executable from that project:
+
+```bash
+./node_modules/.bin/crust --version
+./node_modules/.bin/crust --build-info
+```
+
+The expected version is `crust 0.4.0`; `--build-info` also reports the source
+commit, Bun version, and platform. Compare the commit to the release tag
+rather than assuming a cached executable is current.
+
+## Evidence and safety boundaries
+
+The release workflow tests the source, builds the platform variants, verifies
+compiled metadata and variant behavior, and publishes binaries before their
+npm launchers. The website separately checks command syntax, builds the public
+site, deploys it, and checks live links.
+
+Those gates do not prove that an application API or database has been tested,
+that generated fixtures pass, or that an MCP host has registered the server.
+Execution of documented application scenarios still requires approved targets,
+credentials, data ownership, and cleanup.
